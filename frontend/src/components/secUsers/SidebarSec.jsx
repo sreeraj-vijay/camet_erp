@@ -35,6 +35,7 @@ import { BsFillBuildingsFill } from "react-icons/bs";
 import { SlUserFollow } from "react-icons/sl";
 import LogoutModal from "../common/modal/LogoutModal";
 import { isAdminUser } from "@/utils/permissions";
+import SubscriptionExpiryAlert from "@/components/common/SubscriptionExpiryAlert";
 
 function SidebarSec({ showBar }) {
   const [showSidebar, setShowSidebar] = useState(false);
@@ -171,21 +172,30 @@ function SidebarSec({ showBar }) {
 
       const { userData } = res.data.data;
 
-      setUserData(userData);
-      setCompanies(userData?.organization);
-      setRole(userData?.role || "user");
-      localStorage.setItem("sUserData", JSON.stringify(userData));
+      // This endpoint does not include subscription status. Preserve the
+      // status received at login so the dashboard popup/sidebar reminder is
+      // not lost when the sidebar refreshes the user profile.
+      const loggedInUser = JSON.parse(localStorage.getItem("sUserData") || "null");
+      const userDataWithSubscription = {
+        ...userData,
+        subscription: userData?.subscription || loggedInUser?.subscription,
+      };
+
+      setUserData(userDataWithSubscription);
+      setCompanies(userDataWithSubscription?.organization);
+      setRole(userDataWithSubscription?.role || "user");
+      localStorage.setItem("sUserData", JSON.stringify(userDataWithSubscription));
       localStorage.setItem(
         "permissions",
-        JSON.stringify(userData?.permissions || {})
+        JSON.stringify(userDataWithSubscription?.permissions || {})
       );
-      localStorage.setItem("userType", userData?.userType || "");
-      dispatch(storingPermissions(userData?.permissions || {}));
-      dispatch(storingUserType(userData?.userType || null));
+      localStorage.setItem("userType", userDataWithSubscription?.userType || "");
+      dispatch(storingPermissions(userDataWithSubscription?.permissions || {}));
+      dispatch(storingUserType(userDataWithSubscription?.userType || null));
 
       if (!prevOrg) {
-        setOrg(userData?.organization[0]);
-        dispatch(setSecSelectedOrganization(userData?.organization[0]));
+        setOrg(userDataWithSubscription?.organization[0]);
+        dispatch(setSecSelectedOrganization(userDataWithSubscription?.organization[0]));
       } else {
         setOrg(prevOrg);
       }
@@ -382,6 +392,8 @@ function SidebarSec({ showBar }) {
           handleLogout={handleLogoutClick}
           open={open}
         />
+
+        {open && <SubscriptionExpiryAlert user={storedUserData} variant="sidebar" />}
 
         {/* Main content area - this will take up remaining space */}
         <div className="flex flex-col flex-1 my-3">

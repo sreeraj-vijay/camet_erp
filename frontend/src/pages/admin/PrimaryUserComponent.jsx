@@ -19,6 +19,8 @@ const PrimaryUserComponent = ({
   isLoading,
 }) => {
   const [localLoading, setLocalLoading] = useState(false);
+  const [showRenewDatePicker, setShowRenewDatePicker] = useState(false);
+  const [renewalDate, setRenewalDate] = useState("");
 
   // Helper function to get user initials for avatar
   const getInitials = (name) => {
@@ -57,6 +59,30 @@ const PrimaryUserComponent = ({
     }
     
     return expirationDate;
+  };
+
+  const toDateInputValue = (date) => {
+    if (!date || Number.isNaN(new Date(date).getTime())) return "";
+    const value = new Date(date);
+    const month = String(value.getMonth() + 1).padStart(2, "0");
+    const day = String(value.getDate()).padStart(2, "0");
+    return `${value.getFullYear()}-${month}-${day}`;
+  };
+
+  const openRenewDatePicker = () => {
+    setRenewalDate(
+      toDateInputValue(
+        primaryUser?.expiredAt ||
+          calculateExpirationDate(primaryUser?.createdAt, primaryUser?.subscriptionType),
+      ),
+    );
+    setShowRenewDatePicker(true);
+  };
+
+  const confirmRenewal = () => {
+    if (!renewalDate) return;
+    onRenewSubscription(renewalDate);
+    setShowRenewDatePicker(false);
   };
 
   // Enhanced Toggle Switch Component
@@ -426,7 +452,7 @@ const PrimaryUserComponent = ({
                 />
                 <button
                   type="button"
-                  onClick={onRenewSubscription}
+                  onClick={openRenewDatePicker}
                   disabled={isLoading}
                   className="w-full rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
                 >
@@ -434,7 +460,53 @@ const PrimaryUserComponent = ({
                 </button>
               </div>
             </div>
+      </div>
+
+      {showRenewDatePicker && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/45 p-4">
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="renew-subscription-title"
+            className="w-full max-w-sm rounded-xl bg-white p-5 shadow-2xl"
+          >
+            <h3 id="renew-subscription-title" className="text-lg font-bold text-slate-800">
+              Renew {primaryUser?.subscriptionType || "monthly"} subscription
+            </h3>
+            <p className="mt-1 text-sm text-slate-600">
+              Select the new subscription expiry date.
+            </p>
+            <label htmlFor="subscription-expiry" className="mt-4 block text-sm font-semibold text-slate-700">
+              Expiry date
+            </label>
+            <input
+              id="subscription-expiry"
+              type="date"
+              value={renewalDate}
+              onChange={(event) => setRenewalDate(event.target.value)}
+              min={toDateInputValue(new Date())}
+              className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100"
+            />
+            <div className="mt-5 flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => setShowRenewDatePicker(false)}
+                className="rounded-lg px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-100"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={confirmRenewal}
+                disabled={!renewalDate || isLoading}
+                className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Update subscription
+              </button>
+            </div>
           </div>
+        </div>
+      )}
 
           {/* Toggle Controls Section */}
           <div className="border-t border-slate-200 bg-slate-50/50 p-6">

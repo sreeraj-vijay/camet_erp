@@ -1,11 +1,12 @@
 /* eslint-disable react/prop-types */
 // src/components/Layout.js
-import { Outlet } from "react-router-dom";
+import { Outlet, useLocation } from "react-router-dom";
 import Sidebar from "../components/homePage/Sidebar";
 import SidebarSec from "../components/secUsers/SidebarSec";
 import AdminSidebar from "../components/admin/AdminSidebar";
 import AdminHeader from "../components/admin/AdminHeader";
 import { createContext, useState, useContext } from "react";
+import SubscriptionExpiryAlert from "@/components/common/SubscriptionExpiryAlert";
 
 const SidebarContext = createContext();
 
@@ -14,6 +15,7 @@ export const useSidebar = () => {
 };
 
 const Layout = ({ children }) => {
+  const location = useLocation();
   const [showSidebar, setShowSidebar] = useState(false);
   const handleToggleSidebar = () => {
     if (window.innerWidth < 768) {
@@ -23,6 +25,15 @@ const Layout = ({ children }) => {
 
 
   const isAdmin = location.pathname.includes("/admin/");
+  const isDashboard = ["/pUsers/dashboard", "/sUsers/dashboard"].includes(
+    location.pathname,
+  );
+  const storageKey = location.pathname.includes("/pUsers/")
+    ? "pUserData"
+    : "sUserData";
+  const user = isDashboard
+    ? JSON.parse(localStorage.getItem(storageKey) || "null")
+    : null;
 
   
 
@@ -62,6 +73,7 @@ const Layout = ({ children }) => {
         <div className="flex-1 flex flex-col min-w-0">
           {renderHeader()}
           <main className={`${isAdmin ? "bg-slate-100" : ""}  flex-1 overflow-y-auto overflow-x-auto`}>
+            {isDashboard && <SubscriptionExpiryAlert user={user} />}
             {children}
             <Outlet />
           </main>

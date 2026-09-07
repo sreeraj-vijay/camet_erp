@@ -59,10 +59,10 @@ const ProfileCard = () => {
   });
 
   const renewSubscriptionMutation = useMutation({
-    mutationFn: async () => {
+    mutationFn: async (subscriptionExpiry) => {
       const response = await api.post(
         `/api/admin/renewSubscription/${userId}`,
-        {},
+        { subscriptionExpiry },
         { withCredentials: true }
       );
       return response.data;
@@ -294,7 +294,9 @@ const ProfileCard = () => {
         primaryUser={primaryUser}
         onToggle={handleToggle}
         onSubscriptionToggle={handleSubscriptionToggle}
-        onRenewSubscription={() => renewSubscriptionMutation.mutate()}
+        onRenewSubscription={(subscriptionExpiry) =>
+          renewSubscriptionMutation.mutate(subscriptionExpiry)
+        }
         isLoading={primaryUserMutation.isPending || renewSubscriptionMutation.isPending}
       />
 

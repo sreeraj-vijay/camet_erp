@@ -978,7 +978,19 @@ export const renewPrimaryUserSubscription = async (req, res) => {
     }
 
     const subscription = normalizeSubscription(user.subscription);
-    const subscriptionExpiry = calculateSubscriptionExpiry(new Date(), subscription);
+    let subscriptionExpiry;
+
+    if (req.body.subscriptionExpiry) {
+      subscriptionExpiry = new Date(`${req.body.subscriptionExpiry}T23:59:59.999`);
+      if (Number.isNaN(subscriptionExpiry.getTime()) || subscriptionExpiry <= new Date()) {
+        return res.status(400).json({
+          success: false,
+          message: "Choose a valid future subscription expiry date",
+        });
+      }
+    } else {
+      subscriptionExpiry = calculateSubscriptionExpiry(new Date(), subscription);
+    }
     // Use updateOne so renewing never triggers the legacy password pre-save hook.
     await PrimaryUsers.updateOne(
       { _id: user._id },

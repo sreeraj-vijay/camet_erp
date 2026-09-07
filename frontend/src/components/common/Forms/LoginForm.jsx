@@ -72,6 +72,11 @@ function LoginForm({ user }) {
       setTimeout(() => {
         setLoader(false);
         toast.success(res.data.message);
+        // A dismissal only applies to the current login. Start every new login
+        // with the subscription warning visible again when it is due.
+        Object.keys(sessionStorage)
+          .filter((key) => key.startsWith("subscription-alert-dismissed:"))
+          .forEach((key) => sessionStorage.removeItem(key));
         localStorage.setItem(storageKey, JSON.stringify(res.data.data));
         if (user === "secondary") {
           dispatch(storingPermissions(res?.data?.data?.permissions || {}));
