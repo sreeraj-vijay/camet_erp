@@ -244,6 +244,8 @@ console.log(optionsData)
     fileRef.current.click() // 🔥 open file picker
   }
 
+  console.log("optionsData",optionsData)
+
  
   return (
     <div className="flex-auto px-4 lg:px-10 py-10 pt-0">
@@ -401,7 +403,7 @@ console.log(optionsData)
   optionsData?.subcategory
     ?.filter(
       (option) =>
-        String(option?.category) ===
+        String(option?.category || option?.category_id) ===
         String(roomData.foodCategory)
     )
     .map((option, index) => (

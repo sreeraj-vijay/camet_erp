@@ -9,6 +9,7 @@ import {
   handlePrintInvoice,
   handleDownloadPDF,
 } from "../PrintSide/generateHotelInvoicePDF ";
+import { calculateStayDays, getRoomStayStartDate } from "../Helper/hotelHelper";
 
 // ====== removed chunksForTwo helper ====== [attached_file:1]
 
@@ -39,7 +40,14 @@ export default function SattvaInvoice() {
     let result = [];
     list.forEach((item) => {
       item.selectedRooms.forEach((room) => {
-        const stayDays = room.stayDays || 1;
+        const stayDays = calculateStayDays(
+          item,
+          room,
+          item.arrivalDate,
+          item.checkOutDate,
+          item.stayDays,
+        );
+        if (stayDays <= 0) return;
         const fullDays = Math.floor(stayDays);
         const fractionalDay = stayDays - fullDays;
 
@@ -54,7 +62,9 @@ export default function SattvaInvoice() {
         const additionalPaxDataWithOutTax =
           room.additionalPaxAmountWithOutTax / stayDays;
 
-        const startDate = new Date(item.arrivalDate);
+        const startDate = new Date(
+          getRoomStayStartDate(item, room, item.arrivalDate),
+        );
 
         // Full days
         for (let i = 0; i < fullDays; i++) {

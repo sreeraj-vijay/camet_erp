@@ -34,7 +34,7 @@ import {
   exportLoginReportPdf,
   exportLoginReportExcel,
 } from "../helpers/hotelHelper.js";
-import {createReceiptsAndSettlements} from  "../helpers/checkoutHelper.js"
+import { createReceiptsAndSettlements } from "../helpers/checkoutHelper.js";
 import { extractRequestParams } from "../helpers/productHelper.js";
 import { generateVoucherNumber } from "../helpers/voucherHelper.js";
 import mongoose, { get } from "mongoose";
@@ -1094,6 +1094,17 @@ export const roomBooking = async (req, res) => {
         .session(session);
     }
 
+    const bookingRequestId = req.body?.bookingRequestId;
+    const checkInRequestId = req.body?.checkInRequestId;
+
+    if (isFor === "bookingPage" && !bookingRequestId) {
+      throw new Error("Missing booking request id");
+    }
+
+    if (isFor === "checkIn" && !checkInRequestId) {
+      throw new Error("Missing check-in request id");
+    }
+
     let selectedModal;
     let voucherType;
     let under = "hotel";
@@ -1164,7 +1175,9 @@ export const roomBooking = async (req, res) => {
         Secondary_user_id: req.sUserId,
         paymenttypeDetails,
         paymentMetaData: req?.body?.paymentData?.payments || [],
-
+        bookingRequestId:
+          isFor === "bookingPage" ? bookingRequestId : undefined,
+        checkInRequestId: isFor === "checkIn" ? checkInRequestId : undefined,
         isHotelAgent,
         currentDate: new Date().toISOString().split("T")[0],
         advanceTracking: {
@@ -4173,7 +4186,13 @@ export const swapRoom = async (req, res) => {
     await session.startTransaction();
 
     const { checkInId } = req.params;
-    const { newRoomId, oldRoomId, selectedDate, formData = {} } = req.body;
+    const {
+      newRoomId,
+      oldRoomId,
+      oldSelectedRoomId,
+      selectedDate,
+      formData = {},
+    } = req.body;
 
     if (!checkInId || !newRoomId || !oldRoomId) {
       return res.status(400).json({
@@ -4191,16 +4210,32 @@ export const swapRoom = async (req, res) => {
       });
     }
 
-    const oldSelectedRoomIndex = checkIn.selectedRooms.findIndex((room) => {
-      const roomId =
-        room?.roomId?._id?.toString?.() || room?.roomId?.toString?.();
-      return roomId === oldRoomId.toString();
-    });
+    const oldSelectedRoomIndex = oldSelectedRoomId
+      ? checkIn.selectedRooms.findIndex(
+          (room) => String(room?._id || "") === String(oldSelectedRoomId),
+        )
+      : checkIn.selectedRooms.findIndex((room) => {
+          const roomId =
+            room?.roomId?._id?.toString?.() || room?.roomId?.toString?.();
+          return roomId === oldRoomId.toString();
+        });
 
     if (oldSelectedRoomIndex === -1) {
       return res.status(400).json({
         success: false,
         message: "Old room not found in selected rooms",
+      });
+    }
+
+    const oldSelectedRoomMasterId = String(
+      checkIn.selectedRooms[oldSelectedRoomIndex]?.roomId?._id ||
+        checkIn.selectedRooms[oldSelectedRoomIndex]?.roomId ||
+        "",
+    );
+    if (oldSelectedRoomId && oldSelectedRoomMasterId !== String(oldRoomId)) {
+      return res.status(400).json({
+        success: false,
+        message: "Selected room does not match the old room",
       });
     }
 
@@ -4302,6 +4337,7 @@ export const swapRoom = async (req, res) => {
 
     const newSelectedRoom = {
       ...selectedRoomToAdd,
+      _id: new mongoose.Types.ObjectId(),
       swappingDateFrom: selectedDate,
       isSwapped: false,
     };
@@ -4333,10 +4369,11 @@ export const swapRoom = async (req, res) => {
     }
 
     checkIn.roomSwapHistory.push({
+      fromSelectedRoomId: oldSelectedRoom._id,
+      toSelectedRoomId: newSelectedRoom._id,
       fromRoomId: oldRoomId,
       toRoomId: newRoomId,
-      swapDate: new Date(),
-      selectedDate,
+      swapDate: selectedDate,
       reason: "Guest requested room change",
     });
 
@@ -7539,9 +7576,7 @@ export const updateCheckout = async (req, res) => {
    * Existing data may contain the mode in either sourceType or type.
    */
   const getPaymentType = (payment) => {
-    return normalizePaymentType(
-      payment?.sourceType || payment?.type,
-    );
+    return normalizePaymentType(payment?.sourceType || payment?.type);
   };
 
   const isCreditPayment = (paymentType) => {
@@ -7549,16 +7584,9 @@ export const updateCheckout = async (req, res) => {
   };
 
   const isImmediatePayment = (paymentType) => {
-    const normalizedType =
-      normalizePaymentType(paymentType);
+    const normalizedType = normalizePaymentType(paymentType);
 
-    return [
-      "cash",
-      "bank",
-      "upi",
-      "card",
-      "cheque",
-    ].includes(normalizedType);
+    return ["cash", "bank", "upi", "card", "cheque"].includes(normalizedType);
   };
 
   /*
@@ -7568,9 +7596,7 @@ export const updateCheckout = async (req, res) => {
    * stores the exact payment mode.
    */
   const toSettlementSourceType = (paymentType) => {
-    return normalizePaymentType(paymentType) === "cash"
-      ? "cash"
-      : "bank";
+    return normalizePaymentType(paymentType) === "cash" ? "cash" : "bank";
   };
 
   /*
@@ -7594,21 +7620,17 @@ export const updateCheckout = async (req, res) => {
     const map = new Map();
 
     for (const record of records || []) {
-      console.log("records",records)
-      const paymentIdKey = getPaymentIdKey(
-        record?.paymentId,
-      );
+      console.log("records", records);
+      const paymentIdKey = getPaymentIdKey(record?.paymentId);
 
       if (!paymentIdKey) {
         if (paymentIdRequired) {
-          throw new Error(
-            `${recordName} contains a record without paymentId`,
-          );
+          throw new Error(`${recordName} contains a record without paymentId`);
         }
 
         continue;
       }
-      console.log("paymentIdKey",paymentIdKey)
+      console.log("paymentIdKey", paymentIdKey);
 
       if (map.has(paymentIdKey)) {
         throw new Error(
@@ -7628,16 +7650,11 @@ export const updateCheckout = async (req, res) => {
    * There must never be more than one active document for the same
    * company and paymentId.
    */
-  const createActiveDocumentMap = (
-    records,
-    recordName,
-  ) => {
+  const createActiveDocumentMap = (records, recordName) => {
     const map = new Map();
 
     for (const record of records || []) {
-      const paymentIdKey = getPaymentIdKey(
-        record?.paymentId,
-      );
+      const paymentIdKey = getPaymentIdKey(record?.paymentId);
 
       if (!paymentIdKey) {
         continue;
@@ -7659,10 +7676,7 @@ export const updateCheckout = async (req, res) => {
     return map;
   };
 
-  const abortAndRespond = async (
-    statusCode,
-    message,
-  ) => {
+  const abortAndRespond = async (statusCode, message) => {
     if (session.inTransaction()) {
       await session.abortTransaction();
     }
@@ -7677,15 +7691,8 @@ export const updateCheckout = async (req, res) => {
    *
    * The payment has already been located through paymentId.
    */
-  const updateSalePayment = ({
-    salePayment,
-    incomingPayment,
-    party,
-  }) => {
-    const newPaymentType =
-      normalizePaymentType(
-        incomingPayment.sourceType,
-      );
+  const updateSalePayment = ({ salePayment, incomingPayment, party }) => {
+    const newPaymentType = normalizePaymentType(incomingPayment.sourceType);
 
     if (!newPaymentType) {
       throw new Error(
@@ -7695,10 +7702,7 @@ export const updateCheckout = async (req, res) => {
       );
     }
 
-    if (
-      isImmediatePayment(newPaymentType) &&
-      !incomingPayment.source
-    ) {
+    if (isImmediatePayment(newPaymentType) && !incomingPayment.source) {
       throw new Error(
         `Payment source is required for paymentId ${getPaymentIdKey(
           incomingPayment.paymentId,
@@ -7706,10 +7710,7 @@ export const updateCheckout = async (req, res) => {
       );
     }
 
-    if (
-      isCreditPayment(newPaymentType) &&
-      !incomingPayment.source
-    ) {
+    if (isCreditPayment(newPaymentType) && !incomingPayment.source) {
       throw new Error(
         `Credit party is required for paymentId ${getPaymentIdKey(
           incomingPayment.paymentId,
@@ -7722,46 +7723,28 @@ export const updateCheckout = async (req, res) => {
      * do not clear source/ref_id when an empty source is sent.
      */
     if (incomingPayment.source) {
-      salePayment.ref_id =
-        incomingPayment.source;
+      salePayment.ref_id = incomingPayment.source;
 
-      salePayment.source =
-        incomingPayment.source;
+      salePayment.source = incomingPayment.source;
     }
 
     salePayment.type = newPaymentType;
     salePayment.sourceType = newPaymentType;
 
-    if (
-      Object.prototype.hasOwnProperty.call(
-        incomingPayment,
-        "subsource",
-      )
-    ) {
-      salePayment.subsource =
-        incomingPayment.subsource;
+    if (Object.prototype.hasOwnProperty.call(incomingPayment, "subsource")) {
+      salePayment.subsource = incomingPayment.subsource;
+    }
+
+    if (Object.prototype.hasOwnProperty.call(incomingPayment, "remarks")) {
+      salePayment.remarks = incomingPayment.remarks;
     }
 
     if (
-      Object.prototype.hasOwnProperty.call(
-        incomingPayment,
-        "remarks",
-      )
-    ) {
-      salePayment.remarks =
-        incomingPayment.remarks;
-    }
-
-    if (
-      Object.prototype.hasOwnProperty.call(
-        incomingPayment,
-        "amount",
-      ) &&
+      Object.prototype.hasOwnProperty.call(incomingPayment, "amount") &&
       incomingPayment.amount !== undefined &&
       incomingPayment.amount !== null
     ) {
-      salePayment.amount =
-        incomingPayment.amount;
+      salePayment.amount = incomingPayment.amount;
     }
 
     if (isCreditPayment(newPaymentType)) {
@@ -7770,8 +7753,7 @@ export const updateCheckout = async (req, res) => {
         incomingPayment.customerName || party.partyName;
     } else {
       salePayment.customer = party._id;
-      salePayment.customerName =
-        party.partyName;
+      salePayment.customerName = party.partyName;
     }
   };
 
@@ -7782,23 +7764,13 @@ export const updateCheckout = async (req, res) => {
    *
    * This helper never reactivates a cancelled Receipt.
    */
-  const updateReceipt = ({
-    receipt,
-    payment,
-    party,
-    gstNo,
-    address,
-  }) => {
-    const paymentType =
-      getPaymentType(payment);
+  const updateReceipt = ({ receipt, payment, party, gstNo, address }) => {
+    const paymentType = getPaymentType(payment);
 
-    receipt.party = buildEmbeddedParty(
-      party,
-      {
-        gstNo,
-        address,
-      },
-    );
+    receipt.party = buildEmbeddedParty(party, {
+      gstNo,
+      address,
+    });
 
     receipt.markModified("party");
 
@@ -7810,67 +7782,49 @@ export const updateCheckout = async (req, res) => {
       receipt.paymentMethod = "Cash";
 
       receipt.paymentDetails.cash_id =
-        payment.source ||
-        receipt.paymentDetails.cash_id;
+        payment.source || receipt.paymentDetails.cash_id;
 
       receipt.paymentDetails.cash_ledname =
-        payment.subsource ||
-        receipt.paymentDetails.cash_ledname;
+        payment.subsource || receipt.paymentDetails.cash_ledname;
 
       receipt.paymentDetails.cash_name =
-        payment.subsource ||
-        receipt.paymentDetails.cash_name;
+        payment.subsource || receipt.paymentDetails.cash_name;
 
       receipt.paymentDetails.bank_id = null;
-      receipt.paymentDetails.bank_ledname =
-        "";
+      receipt.paymentDetails.bank_ledname = "";
       receipt.paymentDetails.bank_name = "";
     } else {
       /*
        * Bank, Card, UPI and Cheque use the bank-side fields.
        */
-      receipt.paymentMethod =
-        paymentType ||
-        receipt.paymentMethod;
+      receipt.paymentMethod = paymentType || receipt.paymentMethod;
 
       receipt.paymentDetails.bank_id =
-        payment.source ||
-        receipt.paymentDetails.bank_id;
+        payment.source || receipt.paymentDetails.bank_id;
 
       receipt.paymentDetails.bank_ledname =
-        payment.subsource ||
-        receipt.paymentDetails.bank_ledname;
+        payment.subsource || receipt.paymentDetails.bank_ledname;
 
       receipt.paymentDetails.bank_name =
-        payment.subsource ||
-        receipt.paymentDetails.bank_name;
+        payment.subsource || receipt.paymentDetails.bank_name;
 
       receipt.paymentDetails.cash_id = null;
-      receipt.paymentDetails.cash_ledname =
-        "";
+      receipt.paymentDetails.cash_ledname = "";
       receipt.paymentDetails.cash_name = "";
     }
 
     receipt.paymentId = payment.paymentId;
 
     if (
-      Object.prototype.hasOwnProperty.call(
-        payment,
-        "amount",
-      ) &&
+      Object.prototype.hasOwnProperty.call(payment, "amount") &&
       payment.amount !== undefined &&
       payment.amount !== null &&
-      Object.prototype.hasOwnProperty.call(
-        receipt,
-        "amount",
-      )
+      Object.prototype.hasOwnProperty.call(receipt, "amount")
     ) {
       receipt.amount = payment.amount;
     }
 
-    receipt.markModified(
-      "paymentDetails",
-    );
+    receipt.markModified("paymentDetails");
   };
 
   /*
@@ -7878,27 +7832,18 @@ export const updateCheckout = async (req, res) => {
    *
    * Immediate -> Credit
    */
-  const cancelReceipt = ({
-    receipt,
-    party,
-    gstNo,
-    address,
-  }) => {
-    receipt.party = buildEmbeddedParty(
-      party,
-      {
-        gstNo,
-        address,
-      },
-    );
+  const cancelReceipt = ({ receipt, party, gstNo, address }) => {
+    receipt.party = buildEmbeddedParty(party, {
+      gstNo,
+      address,
+    });
 
     receipt.markModified("party");
 
     receipt.isCancelled = true;
     receipt.cancelledAt = new Date();
     receipt.cancelledBy = req.sUserId;
-    receipt.cancelledByName =
-      req.secUserName;
+    receipt.cancelledByName = req.secUserName;
 
     /*
      * The original controller uses cancelReason.
@@ -7906,8 +7851,7 @@ export const updateCheckout = async (req, res) => {
      * Keep this field unless your actual schema uses
      * cancelledReason instead.
      */
-    receipt.cancelReason =
-      "Payment mode changed to Credit";
+    receipt.cancelReason = "Payment mode changed to Credit";
   };
 
   /*
@@ -7915,54 +7859,31 @@ export const updateCheckout = async (req, res) => {
    *
    * Immediate -> Immediate
    */
-  const updateSettlement = ({
-    settlement,
-    payment,
-    party,
-    receipt,
-  }) => {
-    const paymentType =
-      getPaymentType(payment);
+  const updateSettlement = ({ settlement, payment, party, receipt }) => {
+    const paymentType = getPaymentType(payment);
 
-    settlement.paymentId =
-      payment.paymentId;
+    settlement.paymentId = payment.paymentId;
 
     settlement.partyId = party._id;
-    settlement.partyName =
-      party.partyName;
+    settlement.partyName = party.partyName;
 
-    settlement.partyType =
-      party.partyType || "party";
+    settlement.partyType = party.partyType || "party";
 
-    settlement.sourceId =
-      payment.source ||
-      settlement.sourceId;
+    settlement.sourceId = payment.source || settlement.sourceId;
 
-    settlement.sourceType =
-      toSettlementSourceType(
-        paymentType,
-      );
+    settlement.sourceType = toSettlementSourceType(paymentType);
 
-    settlement.payment_mode =
-      paymentType ||
-      settlement.payment_mode;
+    settlement.payment_mode = paymentType || settlement.payment_mode;
 
     if (receipt?.receiptNumber) {
-      settlement.voucherNumber =
-        receipt.receiptNumber;
+      settlement.voucherNumber = receipt.receiptNumber;
     }
 
     if (
-      Object.prototype.hasOwnProperty.call(
-        payment,
-        "amount",
-      ) &&
+      Object.prototype.hasOwnProperty.call(payment, "amount") &&
       payment.amount !== undefined &&
       payment.amount !== null &&
-      Object.prototype.hasOwnProperty.call(
-        settlement,
-        "amount",
-      )
+      Object.prototype.hasOwnProperty.call(settlement, "amount")
     ) {
       settlement.amount = payment.amount;
     }
@@ -7979,13 +7900,9 @@ export const updateCheckout = async (req, res) => {
     existingCheckoutPayment,
     party,
   }) => {
-    const existingData =
-      toPlainObject(
-        existingCheckoutPayment,
-      );
+    const existingData = toPlainObject(existingCheckoutPayment);
 
-    const paymentType =
-      getPaymentType(salePayment);
+    const paymentType = getPaymentType(salePayment);
 
     return {
       ...existingData,
@@ -7997,17 +7914,11 @@ export const updateCheckout = async (req, res) => {
 
       paymentId: salePayment.paymentId,
 
-      mode:
-        paymentType ||
-        existingData.mode,
+      mode: paymentType || existingData.mode,
 
-      type:
-        paymentType ||
-        existingData.type,
+      type: paymentType || existingData.type,
 
-      sourceType:
-        paymentType ||
-        existingData.sourceType,
+      sourceType: paymentType || existingData.sourceType,
 
       source:
         salePayment.source !== undefined
@@ -8039,9 +7950,7 @@ export const updateCheckout = async (req, res) => {
     };
   };
 
-  const calculatePaymentTotals = (
-    salePayments,
-  ) => {
+  const calculatePaymentTotals = (salePayments) => {
     const totals = {
       cash: 0,
       bank: 0,
@@ -8051,26 +7960,15 @@ export const updateCheckout = async (req, res) => {
     };
 
     for (const payment of salePayments || []) {
-      const paymentType =
-        getPaymentType(payment);
+      const paymentType = getPaymentType(payment);
 
-      const parsedAmount =
-        Number.parseFloat(
-          payment.amount?.toString() || "0",
-        );
+      const parsedAmount = Number.parseFloat(payment.amount?.toString() || "0");
 
-      const amount = Number.isFinite(
-        parsedAmount,
-      )
-        ? parsedAmount
-        : 0;
+      const amount = Number.isFinite(parsedAmount) ? parsedAmount : 0;
 
       if (paymentType === "cash") {
         totals.cash += amount;
-      } else if (
-        paymentType === "bank" ||
-        paymentType === "cheque"
-      ) {
+      } else if (paymentType === "bank" || paymentType === "cheque") {
         /*
          * The current totals object has no separate cheque field.
          */
@@ -8318,10 +8216,7 @@ export const updateCheckout = async (req, res) => {
     const { cmp_id } = req.query;
 
     if (!id || !cmp_id) {
-      return await abortAndRespond(
-        400,
-        "id and cmp_id are required",
-      );
+      return await abortAndRespond(400, "id and cmp_id are required");
     }
 
     const sale = await salesModel
@@ -8332,24 +8227,13 @@ export const updateCheckout = async (req, res) => {
       .session(session);
 
     if (!sale) {
-      return await abortAndRespond(
-        404,
-        "Sale not found",
-      );
+      return await abortAndRespond(404, "Sale not found");
     }
 
-    const {
-      partyId,
-      gstNo,
-      address,
-      payments = [],
-    } = req.body;
+    const { partyId, gstNo, address, payments = [] } = req.body;
 
     if (!partyId) {
-      return await abortAndRespond(
-        400,
-        "partyId is required",
-      );
+      return await abortAndRespond(400, "partyId is required");
     }
 
     const party = await Party.findOne({
@@ -8358,10 +8242,7 @@ export const updateCheckout = async (req, res) => {
     }).session(session);
 
     if (!party) {
-      return await abortAndRespond(
-        404,
-        "Party not found",
-      );
+      return await abortAndRespond(404, "Party not found");
     }
 
     /*
@@ -8369,50 +8250,43 @@ export const updateCheckout = async (req, res) => {
      * 1. Clone old Sale payments before modifying the Sale.
      * ======================================================
      */
-const oldPayments = (sale.paymentSplittingData || []).map((payment) => ({
-  ...payment.toObject(),
-  paymentId: payment.paymentId,
-}));
-    console.log("oldPayments",oldPayments)
+    const oldPayments = (sale.paymentSplittingData || []).map((payment) => ({
+      ...payment.toObject(),
+      paymentId: payment.paymentId,
+    }));
+    console.log("oldPayments", oldPayments);
 
-    const oldPaymentMap =
-      createStrictPaymentMap(
-        oldPayments,
-        "old Sale paymentSplittingData",
-        {
-          paymentIdRequired: true,
-        },
-      );
+    const oldPaymentMap = createStrictPaymentMap(
+      oldPayments,
+      "old Sale paymentSplittingData",
+      {
+        paymentIdRequired: true,
+      },
+    );
 
     /*`
      * ======================================================
      * 2. Update Sale payments using paymentId.
      * ======================================================
      */
-    const salePaymentMap =
-      createStrictPaymentMap(
-        sale.paymentSplittingData || [],
-        "Sale paymentSplittingData",
-        {
-          paymentIdRequired: true,
-        },
-      );
+    const salePaymentMap = createStrictPaymentMap(
+      sale.paymentSplittingData || [],
+      "Sale paymentSplittingData",
+      {
+        paymentIdRequired: true,
+      },
+    );
 
-    const incomingPaymentMap =
-      createStrictPaymentMap(
-        payments,
-        "request payments",
-        {
-          paymentIdRequired: true,
-        },
-      );
+    const incomingPaymentMap = createStrictPaymentMap(
+      payments,
+      "request payments",
+      {
+        paymentIdRequired: true,
+      },
+    );
 
-    for (const [
-      paymentIdKey,
-      incomingPayment,
-    ] of incomingPaymentMap) {
-      const salePayment =
-        salePaymentMap.get(paymentIdKey);
+    for (const [paymentIdKey, incomingPayment] of incomingPaymentMap) {
+      const salePayment = salePaymentMap.get(paymentIdKey);
 
       /*
        * Preserve existing behavior:
@@ -8429,60 +8303,46 @@ const oldPayments = (sale.paymentSplittingData || []).map((payment) => ({
       });
     }
 
-    sale.party = buildEmbeddedParty(
-      party,
-      {
-        gstNo,
-        address,
-      },
-    );
+    sale.party = buildEmbeddedParty(party, {
+      gstNo,
+      address,
+    });
 
     sale.markModified("party");
-    sale.markModified(
-      "paymentSplittingData",
-    );
+    sale.markModified("paymentSplittingData");
 
     await sale.save({ session });
 
-    const finalPaymentMap =
-      createStrictPaymentMap(
-        sale.paymentSplittingData || [],
-        "updated Sale paymentSplittingData",
-        {
-          paymentIdRequired: true,
-        },
-      );
+    const finalPaymentMap = createStrictPaymentMap(
+      sale.paymentSplittingData || [],
+      "updated Sale paymentSplittingData",
+      {
+        paymentIdRequired: true,
+      },
+    );
 
-    const paymentIds =
-      sale.paymentSplittingData.map(
-        (payment) => payment.paymentId,
-      );
+    const paymentIds = sale.paymentSplittingData.map(
+      (payment) => payment.paymentId,
+    );
 
     /*
      * ======================================================
      * 3. Load Checkout.
      * ======================================================
      */
-    const checkout =
-      await CheckOut.findOne({
-        cmp_id,
-        voucherNumber:
-          sale.salesNumber,
-      }).session(session);
+    const checkout = await CheckOut.findOne({
+      cmp_id,
+      voucherNumber: sale.salesNumber,
+    }).session(session);
 
     if (!checkout) {
-      return await abortAndRespond(
-        404,
-        "Checkout not found for this sale",
-      );
+      return await abortAndRespond(404, "Checkout not found for this sale");
     }
 
-    const checkoutMap =
-      createStrictPaymentMap(
-        checkout.checkoutpaymenttypedetails ||
-          [],
-        "Checkout checkoutpaymenttypedetails",
-      );
+    const checkoutMap = createStrictPaymentMap(
+      checkout.checkoutpaymenttypedetails || [],
+      "Checkout checkoutpaymenttypedetails",
+    );
 
     /*
      * ======================================================
@@ -8491,8 +8351,29 @@ const oldPayments = (sale.paymentSplittingData || []).map((payment) => ({
      * Cancelled Receipt history is intentionally excluded.
      * ======================================================
      */
-    const activeReceipts =
-      await ReceiptModel.find({
+    const activeReceipts = await ReceiptModel.find({
+      cmp_id,
+
+      paymentId: {
+        $in: paymentIds,
+      },
+
+      isCancelled: {
+        $ne: true,
+      },
+    }).session(session);
+
+    const activeReceiptMap = createActiveDocumentMap(activeReceipts, "Receipt");
+
+    /*
+     * ======================================================
+     * 5. Fetch active Settlements using paymentId.
+     *
+     * Cancelled Settlement history is intentionally excluded.
+     * ======================================================
+     */
+    const activeSettlements = await settlementModel
+      .find({
         cmp_id,
 
         paymentId: {
@@ -8502,41 +8383,13 @@ const oldPayments = (sale.paymentSplittingData || []).map((payment) => ({
         isCancelled: {
           $ne: true,
         },
-      }).session(session);
+      })
+      .session(session);
 
-    const activeReceiptMap =
-      createActiveDocumentMap(
-        activeReceipts,
-        "Receipt",
-      );
-
-    /*
-     * ======================================================
-     * 5. Fetch active Settlements using paymentId.
-     *
-     * Cancelled Settlement history is intentionally excluded.
-     * ======================================================
-     */
-    const activeSettlements =
-      await settlementModel
-        .find({
-          cmp_id,
-
-          paymentId: {
-            $in: paymentIds,
-          },
-
-          isCancelled: {
-            $ne: true,
-          },
-        })
-        .session(session);
-
-    const activeSettlementMap =
-      createActiveDocumentMap(
-        activeSettlements,
-        "Settlement",
-      );
+    const activeSettlementMap = createActiveDocumentMap(
+      activeSettlements,
+      "Settlement",
+    );
 
     /*
      * ======================================================
@@ -8545,22 +8398,15 @@ const oldPayments = (sale.paymentSplittingData || []).map((payment) => ({
      * Replace hotelTallyModel with the actual imported model name.
      * ======================================================
      */
-    const tallyRecords =
-      await TallyData
-        .find({
-          cmp_id,
+    const tallyRecords = await TallyData.find({
+      cmp_id,
 
-          paymentId: {
-            $in: paymentIds,
-          },
-        })
-        .session(session);
+      paymentId: {
+        $in: paymentIds,
+      },
+    }).session(session);
 
-    const tallyMap =
-      createStrictPaymentMap(
-        tallyRecords,
-        "Tally records",
-      );
+    const tallyMap = createStrictPaymentMap(tallyRecords, "Tally records");
 
     /*
      * Create a brand-new Receipt and Settlement for:
@@ -8569,20 +8415,11 @@ const oldPayments = (sale.paymentSplittingData || []).map((payment) => ({
      *
      * Cancelled Receipt/Settlement records are never reused.
      */
-    const createFreshReceiptAndSettlement =
-      async ({
-        payment,
-        tally,
-      }) => {
-        const paymentIdKey =
-          getPaymentIdKey(
-            payment.paymentId,
-          );
+    const createFreshReceiptAndSettlement = async ({ payment, tally }) => {
+      const paymentIdKey = getPaymentIdKey(payment.paymentId);
 
-        const {
-          receipt: createdReceipt,
-          settlement: createdSettlement,
-        } = await createReceiptAndSettlementForPayment({
+      const { receipt: createdReceipt, settlement: createdSettlement } =
+        await createReceiptAndSettlementForPayment({
           payment,
           tally,
           party,
@@ -8591,55 +8428,42 @@ const oldPayments = (sale.paymentSplittingData || []).map((payment) => ({
           address,
         });
 
-        const refreshedTally =
-          await TallyData
-            .findOne({
-              cmp_id,
+      const refreshedTally = await TallyData.findOne({
+        cmp_id,
 
-              paymentId:
-                payment.paymentId,
-            })
-            .session(session);
+        paymentId: payment.paymentId,
+      }).session(session);
 
-        if (!createdReceipt) {
-          throw new Error(
-            `Fresh Receipt was not created for paymentId ${paymentIdKey}`,
-          );
-        }
+      if (!createdReceipt) {
+        throw new Error(
+          `Fresh Receipt was not created for paymentId ${paymentIdKey}`,
+        );
+      }
 
-        if (!createdSettlement) {
-          throw new Error(
-            `Fresh Settlement was not created for paymentId ${paymentIdKey}`,
-          );
-        }
+      if (!createdSettlement) {
+        throw new Error(
+          `Fresh Settlement was not created for paymentId ${paymentIdKey}`,
+        );
+      }
 
-        if (
-          getPaymentIdKey(
-            createdReceipt.paymentId,
-          ) !== paymentIdKey
-        ) {
-          throw new Error(
-            `Created Receipt has an incorrect paymentId for payment ${paymentIdKey}`,
-          );
-        }
+      if (getPaymentIdKey(createdReceipt.paymentId) !== paymentIdKey) {
+        throw new Error(
+          `Created Receipt has an incorrect paymentId for payment ${paymentIdKey}`,
+        );
+      }
 
-        if (
-          getPaymentIdKey(
-            createdSettlement.paymentId,
-          ) !== paymentIdKey
-        ) {
-          throw new Error(
-            `Created Settlement has an incorrect paymentId for payment ${paymentIdKey}`,
-          );
-        }
+      if (getPaymentIdKey(createdSettlement.paymentId) !== paymentIdKey) {
+        throw new Error(
+          `Created Settlement has an incorrect paymentId for payment ${paymentIdKey}`,
+        );
+      }
 
-        return {
-          receipt: createdReceipt,
-          settlement:
-            createdSettlement,
-          tally: refreshedTally,
-        };
+      return {
+        receipt: createdReceipt,
+        settlement: createdSettlement,
+        tally: refreshedTally,
       };
+    };
 
     /*
      * ======================================================
@@ -8649,21 +8473,14 @@ const oldPayments = (sale.paymentSplittingData || []).map((payment) => ({
      * Writes are sequential because concurrent operations using one
      * transaction session should not be executed through Promise.all().
      */
-    for (const newPayment of
-      sale.paymentSplittingData) {
-      const paymentIdKey =
-        getPaymentIdKey(
-          newPayment.paymentId,
-        );
+    for (const newPayment of sale.paymentSplittingData) {
+      const paymentIdKey = getPaymentIdKey(newPayment.paymentId);
 
       if (!paymentIdKey) {
-        throw new Error(
-          "Updated Sale payment is missing paymentId",
-        );
+        throw new Error("Updated Sale payment is missing paymentId");
       }
 
-      const oldPayment =
-        oldPaymentMap.get(paymentIdKey);
+      const oldPayment = oldPaymentMap.get(paymentIdKey);
 
       if (!oldPayment) {
         throw new Error(
@@ -8671,24 +8488,15 @@ const oldPayments = (sale.paymentSplittingData || []).map((payment) => ({
         );
       }
 
-      let receipt =
-        activeReceiptMap.get(
-          paymentIdKey,
-        );
+      let receipt = activeReceiptMap.get(paymentIdKey);
 
-      let settlement =
-        activeSettlementMap.get(
-          paymentIdKey,
-        );
+      let settlement = activeSettlementMap.get(paymentIdKey);
 
-      let tally =
-        tallyMap.get(paymentIdKey);
+      let tally = tallyMap.get(paymentIdKey);
 
-      const oldPaymentType =
-        getPaymentType(oldPayment);
+      const oldPaymentType = getPaymentType(oldPayment);
 
-      const newPaymentType =
-        getPaymentType(newPayment);
+      const newPaymentType = getPaymentType(newPayment);
 
       if (!oldPaymentType) {
         throw new Error(
@@ -8702,39 +8510,21 @@ const oldPayments = (sale.paymentSplittingData || []).map((payment) => ({
         );
       }
 
-      const oldIsCredit =
-        isCreditPayment(
-          oldPaymentType,
-        );
+      const oldIsCredit = isCreditPayment(oldPaymentType);
 
-      const oldIsImmediate =
-        isImmediatePayment(
-          oldPaymentType,
-        );
+      const oldIsImmediate = isImmediatePayment(oldPaymentType);
 
-      const newIsCredit =
-        isCreditPayment(
-          newPaymentType,
-        );
+      const newIsCredit = isCreditPayment(newPaymentType);
 
-      const newIsImmediate =
-        isImmediatePayment(
-          newPaymentType,
-        );
+      const newIsImmediate = isImmediatePayment(newPaymentType);
 
-      if (
-        !oldIsCredit &&
-        !oldIsImmediate
-      ) {
+      if (!oldIsCredit && !oldIsImmediate) {
         throw new Error(
           `Unsupported old payment mode "${oldPaymentType}" for paymentId ${paymentIdKey}`,
         );
       }
 
-      if (
-        !newIsCredit &&
-        !newIsImmediate
-      ) {
+      if (!newIsCredit && !newIsImmediate) {
         throw new Error(
           `Unsupported new payment mode "${newPaymentType}" for paymentId ${paymentIdKey}`,
         );
@@ -8745,10 +8535,7 @@ const oldPayments = (sale.paymentSplittingData || []).map((payment) => ({
        * CASE 1: Credit -> Credit
        * ------------------------------------------------------
        */
-      if (
-        oldIsCredit &&
-        newIsCredit
-      ) {
+      if (oldIsCredit && newIsCredit) {
         /*
          * Credit must not have an active Receipt or Settlement.
          *
@@ -8775,36 +8562,29 @@ const oldPayments = (sale.paymentSplittingData || []).map((payment) => ({
          * - keep the outstanding pending
          * - use paymentId to find the correct Tally entry
          */
-        tally =
-          await updateTallyForCheckoutTransition({
-            transition:
-              "credit-to-credit",
+        tally = await updateTallyForCheckoutTransition({
+          transition: "credit-to-credit",
 
-            tally,
-            oldPayment,
-            newPayment,
+          tally,
+          oldPayment,
+          newPayment,
 
-            receipt: null,
-            settlement: null,
+          receipt: null,
+          settlement: null,
 
-            sale,
-            checkout,
-            party,
-            cmp_id,
-            session,
+          sale,
+          checkout,
+          party,
+          cmp_id,
+          session,
 
-            requestUserId:
-              req.sUserId,
+          requestUserId: req.sUserId,
 
-            requestUserName:
-              req.secUserName,
-          });
+          requestUserName: req.secUserName,
+        });
 
         if (tally) {
-          tallyMap.set(
-            paymentIdKey,
-            tally,
-          );
+          tallyMap.set(paymentIdKey, tally);
         }
 
         continue;
@@ -8815,10 +8595,7 @@ const oldPayments = (sale.paymentSplittingData || []).map((payment) => ({
        * CASE 2: Immediate -> Immediate
        * ------------------------------------------------------
        */
-      if (
-        oldIsImmediate &&
-        newIsImmediate
-      ) {
+      if (oldIsImmediate && newIsImmediate) {
         /*
          * Never recreate documents in this transition.
          */
@@ -8866,35 +8643,28 @@ const oldPayments = (sale.paymentSplittingData || []).map((payment) => ({
          * - adjust applied amount if the payment amount changed
          * - do not create or cancel Tally entries
          */
-        tally =
-          await updateTallyForCheckoutTransition({
-            transition:
-              "immediate-to-immediate",
+        tally = await updateTallyForCheckoutTransition({
+          transition: "immediate-to-immediate",
 
-            tally,
-            oldPayment,
-            newPayment,
-            receipt,
-            settlement,
+          tally,
+          oldPayment,
+          newPayment,
+          receipt,
+          settlement,
 
-            sale,
-            checkout,
-            party,
-            cmp_id,
-            session,
+          sale,
+          checkout,
+          party,
+          cmp_id,
+          session,
 
-            requestUserId:
-              req.sUserId,
+          requestUserId: req.sUserId,
 
-            requestUserName:
-              req.secUserName,
-          });
+          requestUserName: req.secUserName,
+        });
 
         if (tally) {
-          tallyMap.set(
-            paymentIdKey,
-            tally,
-          );
+          tallyMap.set(paymentIdKey, tally);
         }
 
         continue;
@@ -8905,10 +8675,7 @@ const oldPayments = (sale.paymentSplittingData || []).map((payment) => ({
        * CASE 3: Immediate -> Credit
        * ------------------------------------------------------
        */
-      if (
-        oldIsImmediate &&
-        newIsCredit
-      ) {
+      if (oldIsImmediate && newIsCredit) {
         if (!receipt) {
           throw new Error(
             `Active Receipt not found for immediate paymentId ${paymentIdKey}`,
@@ -8932,10 +8699,7 @@ const oldPayments = (sale.paymentSplittingData || []).map((payment) => ({
           session,
         });
 
-        await settlementModel.deleteOne(
-          { _id: settlement._id },
-          { session },
-        );
+        await settlementModel.deleteOne({ _id: settlement._id }, { session });
 
         /*
          * Existing Tally helper responsibilities:
@@ -8946,46 +8710,35 @@ const oldPayments = (sale.paymentSplittingData || []).map((payment) => ({
          * - mark the outstanding as pending
          * - update party/customer details
          */
-        tally =
-          await updateTallyForCheckoutTransition({
-            transition:
-              "immediate-to-credit",
+        tally = await updateTallyForCheckoutTransition({
+          transition: "immediate-to-credit",
 
-            tally,
-            oldPayment,
-            newPayment,
-            receipt,
-            settlement,
+          tally,
+          oldPayment,
+          newPayment,
+          receipt,
+          settlement,
 
-            sale,
-            checkout,
-            party,
-            cmp_id,
-            session,
+          sale,
+          checkout,
+          party,
+          cmp_id,
+          session,
 
-            requestUserId:
-              req.sUserId,
+          requestUserId: req.sUserId,
 
-            requestUserName:
-              req.secUserName,
-          });
+          requestUserName: req.secUserName,
+        });
 
         /*
          * The cancelled documents are no longer active.
          */
-        activeReceiptMap.delete(
-          paymentIdKey,
-        );
+        activeReceiptMap.delete(paymentIdKey);
 
-        activeSettlementMap.delete(
-          paymentIdKey,
-        );
+        activeSettlementMap.delete(paymentIdKey);
 
         if (tally) {
-          tallyMap.set(
-            paymentIdKey,
-            tally,
-          );
+          tallyMap.set(paymentIdKey, tally);
         }
 
         continue;
@@ -8996,10 +8749,7 @@ const oldPayments = (sale.paymentSplittingData || []).map((payment) => ({
        * CASE 4: Credit -> Immediate
        * ------------------------------------------------------
        */
-      if (
-        oldIsCredit &&
-        newIsImmediate
-      ) {
+      if (oldIsCredit && newIsImmediate) {
         /*
          * A Credit payment must not already have active payment
          * documents.
@@ -9032,36 +8782,23 @@ const oldPayments = (sale.paymentSplittingData || []).map((payment) => ({
          *
          * Everything receives the current MongoDB session.
          */
-        const createdDocuments =
-          await createFreshReceiptAndSettlement({
-            payment: newPayment,
-            tally,
-          });
+        const createdDocuments = await createFreshReceiptAndSettlement({
+          payment: newPayment,
+          tally,
+        });
 
-        receipt =
-          createdDocuments.receipt;
+        receipt = createdDocuments.receipt;
 
-        settlement =
-          createdDocuments.settlement;
+        settlement = createdDocuments.settlement;
 
-        tally =
-          createdDocuments.tally;
+        tally = createdDocuments.tally;
 
-        activeReceiptMap.set(
-          paymentIdKey,
-          receipt,
-        );
+        activeReceiptMap.set(paymentIdKey, receipt);
 
-        activeSettlementMap.set(
-          paymentIdKey,
-          settlement,
-        );
+        activeSettlementMap.set(paymentIdKey, settlement);
 
         if (tally) {
-          tallyMap.set(
-            paymentIdKey,
-            tally,
-          );
+          tallyMap.set(paymentIdKey, tally);
         }
 
         continue;
@@ -9080,70 +8817,44 @@ const oldPayments = (sale.paymentSplittingData || []).map((payment) => ({
      * The old Checkout Map is used only to preserve Checkout-specific
      * fields and subdocument IDs.
      */
-    checkout.checkoutpaymenttypedetails =
-      sale.paymentSplittingData.map(
-        (salePayment) => {
-          const paymentIdKey =
-            getPaymentIdKey(
-              salePayment.paymentId,
-            );
+    checkout.checkoutpaymenttypedetails = sale.paymentSplittingData.map(
+      (salePayment) => {
+        const paymentIdKey = getPaymentIdKey(salePayment.paymentId);
 
-          const existingCheckoutPayment =
-            checkoutMap.get(
-              paymentIdKey,
-            );
+        const existingCheckoutPayment = checkoutMap.get(paymentIdKey);
 
-          return buildCheckoutPaymentRow({
-            salePayment,
-            existingCheckoutPayment,
-            party,
-          });
-        },
-      );
-
-    checkout.markModified(
-      "checkoutpaymenttypedetails",
+        return buildCheckoutPaymentRow({
+          salePayment,
+          existingCheckoutPayment,
+          party,
+        });
+      },
     );
 
-    checkout.paymenttypeDetails =
-      calculatePaymentTotals(
-        sale.paymentSplittingData,
-      );
+    checkout.markModified("checkoutpaymenttypedetails");
 
-    checkout.markModified(
-      "paymenttypeDetails",
+    checkout.paymenttypeDetails = calculatePaymentTotals(
+      sale.paymentSplittingData,
     );
 
-    checkout.guestId =
-      party._id ||
-      checkout.guestId;
+    checkout.markModified("paymenttypeDetails");
 
-    checkout.guestName =
-      party.partyName ||
-      checkout.guestName;
+    checkout.guestId = party._id || checkout.guestId;
+
+    checkout.guestName = party.partyName || checkout.guestName;
 
     checkout.guestState =
-      statesData.find(
-        (state) =>
-          state?.stateCode ===
-          party?.state_reference,
-      ) || checkout.guestState;
+      statesData.find((state) => state?.stateCode === party?.state_reference) ||
+      checkout.guestState;
 
-    checkout.guestPinCode =
-      party.guestPinCode ||
-      checkout.guestPinCode;
+    checkout.guestPinCode = party.guestPinCode || checkout.guestPinCode;
 
-    checkout.guestDetailedAddress =
-      address ||
-      checkout.guestDetailedAddress;
+    checkout.guestDetailedAddress = address || checkout.guestDetailedAddress;
 
     checkout.guestMobileNumber =
-      party.mobileNumber ||
-      checkout.guestMobileNumber;
+      party.mobileNumber || checkout.guestMobileNumber;
 
-    checkout.gstNo =
-      gstNo ||
-      checkout.gstNo;
+    checkout.gstNo = gstNo || checkout.gstNo;
 
     await checkout.save({
       session,
@@ -9153,8 +8864,7 @@ const oldPayments = (sale.paymentSplittingData || []).map((payment) => ({
 
     return res.status(200).json({
       success: true,
-      message:
-        "Sale updated successfully",
+      message: "Sale updated successfully",
       data: sale,
     });
   } catch (error) {
@@ -9162,45 +8872,21 @@ const oldPayments = (sale.paymentSplittingData || []).map((payment) => ({
       await session.abortTransaction();
     }
 
-    console.error(
-      "updateCheckout error:",
-      error,
-    );
+    console.error("updateCheckout error:", error);
 
     const isValidationOrIntegrityError =
-      error.message?.includes(
-        "paymentId",
-      ) ||
-      error.message?.includes(
-        "payment mode",
-      ) ||
-      error.message?.includes(
-        "sourceType",
-      ) ||
-      error.message?.includes(
-        "Duplicate",
-      ) ||
-      error.message?.includes(
-        "Multiple active",
-      ) ||
-      error.message?.includes(
-        "Unsupported",
-      );
+      error.message?.includes("paymentId") ||
+      error.message?.includes("payment mode") ||
+      error.message?.includes("sourceType") ||
+      error.message?.includes("Duplicate") ||
+      error.message?.includes("Multiple active") ||
+      error.message?.includes("Unsupported");
 
-    return res
-      .status(
-        isValidationOrIntegrityError
-          ? 400
-          : 500,
-      )
-      .json({
-        message:
-          isValidationOrIntegrityError
-            ? error.message
-            : "Server error",
+    return res.status(isValidationOrIntegrityError ? 400 : 500).json({
+      message: isValidationOrIntegrityError ? error.message : "Server error",
 
-        error: error.message,
-      });
+      error: error.message,
+    });
   } finally {
     await session.endSession();
   }
@@ -9293,7 +8979,9 @@ export const updateRestaurantSalePayments = async (req, res) => {
       partyName: plainParty.partyName || "",
       partyType: plainParty.partyType || "party",
       accountGroupName:
-        plainParty.accountGroupName || plainParty.accountGroup?.accountGroup || "",
+        plainParty.accountGroupName ||
+        plainParty.accountGroup?.accountGroup ||
+        "",
       accountGroup_id: accountGroup,
       subGroupName: plainParty.subGroupName || "",
       subGroup_id: plainParty.subGroup_id || null,
@@ -9409,7 +9097,9 @@ export const updateRestaurantSalePayments = async (req, res) => {
     }
 
     if (isImmediatePayment(paymentType) && !payment.source) {
-      throw new Error(`Payment source is required for paymentId ${paymentIdKey}`);
+      throw new Error(
+        `Payment source is required for paymentId ${paymentIdKey}`,
+      );
     }
 
     if (isCreditPayment(paymentType) && !payment.source) {
@@ -9439,11 +9129,16 @@ export const updateRestaurantSalePayments = async (req, res) => {
         ? incomingPayment.transactionNo
         : salePayment.transactionNo;
     salePayment.upiNo =
-      incomingPayment.upiNo !== undefined ? incomingPayment.upiNo : salePayment.upiNo;
+      incomingPayment.upiNo !== undefined
+        ? incomingPayment.upiNo
+        : salePayment.upiNo;
     salePayment.underCategory =
       incomingPayment.underCategory || salePayment.underCategory;
 
-    if (incomingPayment.amount !== undefined && incomingPayment.amount !== null) {
+    if (
+      incomingPayment.amount !== undefined &&
+      incomingPayment.amount !== null
+    ) {
       salePayment.amount = incomingPayment.amount;
     }
 
@@ -9464,7 +9159,11 @@ export const updateRestaurantSalePayments = async (req, res) => {
 
     receipt.party = buildReceiptParty(party);
     receipt.paymentMethod =
-      paymentType === "cash" ? "Cash" : paymentType === "bank" ? "Bank" : paymentType;
+      paymentType === "cash"
+        ? "Cash"
+        : paymentType === "bank"
+          ? "Bank"
+          : paymentType;
     receipt.paymentDetails = buildReceiptPaymentDetails(payment);
     receipt.enteredAmount = amount;
     receipt.totalBillAmount = Number(receipt.totalBillAmount || amount);
@@ -9489,11 +9188,18 @@ export const updateRestaurantSalePayments = async (req, res) => {
     receipt.cancelReason = "Payment mode changed to Credit";
   };
 
-  const updateSettlement = ({ settlement, payment, party, receipt, cmp_id }) => {
+  const updateSettlement = ({
+    settlement,
+    payment,
+    party,
+    receipt,
+    cmp_id,
+  }) => {
     const paymentType = getPaymentType(payment);
 
     settlement.paymentId = payment.paymentId;
-    settlement.voucherNumber = receipt?.receiptNumber || settlement.voucherNumber;
+    settlement.voucherNumber =
+      receipt?.receiptNumber || settlement.voucherNumber;
     settlement.voucherId = receipt?._id || settlement.voucherId;
     settlement.voucherModel = "Receipt";
     settlement.voucherType = "receipt";
@@ -9549,10 +9255,14 @@ export const updateRestaurantSalePayments = async (req, res) => {
     tally.party_id = party._id;
     tally.party_name = party.partyName;
     tally.mobile_no = party.mobileNumber || tally.mobile_no;
-    tally.accountGroup = party.accountGroup || party.accountGroup_id || tally.accountGroup;
+    tally.accountGroup =
+      party.accountGroup || party.accountGroup_id || tally.accountGroup;
     tally.bill_amount = amount;
 
-    if (transition === "immediate-to-credit" || transition === "credit-to-credit") {
+    if (
+      transition === "immediate-to-credit" ||
+      transition === "credit-to-credit"
+    ) {
       tally.bill_pending_amt = amount;
       tally.appliedReceipts = [];
     } else if (
@@ -9688,14 +9398,19 @@ export const updateRestaurantSalePayments = async (req, res) => {
 
     const saleParty =
       (sale.party?._id &&
-        (await Party.findOne({ _id: sale.party._id, cmp_id }).session(session))) ||
+        (await Party.findOne({ _id: sale.party._id, cmp_id }).session(
+          session,
+        ))) ||
       sale.party;
 
     const oldPayments = (sale.paymentSplittingData || []).map((payment) =>
       toPlainObject(payment),
     );
     const oldPaymentMap = createStrictPaymentMap(oldPayments, "Sale payment");
-    const incomingPaymentMap = createStrictPaymentMap(payments, "Request payment");
+    const incomingPaymentMap = createStrictPaymentMap(
+      payments,
+      "Request payment",
+    );
 
     if (oldPaymentMap.size !== incomingPaymentMap.size) {
       throw new Error("Request payments do not match the sale payment rows");
@@ -9706,7 +9421,9 @@ export const updateRestaurantSalePayments = async (req, res) => {
       const incomingPayment = incomingPaymentMap.get(paymentIdKey);
 
       if (!incomingPayment) {
-        throw new Error(`Request payment not found for paymentId ${paymentIdKey}`);
+        throw new Error(
+          `Request payment not found for paymentId ${paymentIdKey}`,
+        );
       }
 
       updateSalePayment({
@@ -9769,7 +9486,9 @@ export const updateRestaurantSalePayments = async (req, res) => {
 
     for (const [paymentIdKey, receipt] of receiptMap.entries()) {
       if (!settlementMap.has(paymentIdKey)) {
-        const settlement = settlementsByVoucherNumber.get(receipt.receiptNumber);
+        const settlement = settlementsByVoucherNumber.get(
+          receipt.receiptNumber,
+        );
         if (settlement) settlementMap.set(paymentIdKey, settlement);
       }
     }
@@ -9836,7 +9555,9 @@ export const updateRestaurantSalePayments = async (req, res) => {
 
       if (oldIsImmediate && newIsImmediate) {
         if (!receipt) {
-          throw new Error(`Active Receipt not found for paymentId ${paymentIdKey}`);
+          throw new Error(
+            `Active Receipt not found for paymentId ${paymentIdKey}`,
+          );
         }
         if (!settlement) {
           throw new Error(
@@ -9845,7 +9566,13 @@ export const updateRestaurantSalePayments = async (req, res) => {
         }
 
         updateReceipt({ receipt, payment, party: saleParty });
-        updateSettlement({ settlement, payment, party: saleParty, receipt, cmp_id });
+        updateSettlement({
+          settlement,
+          payment,
+          party: saleParty,
+          receipt,
+          cmp_id,
+        });
         await receipt.save({ session });
         await settlement.save({ session });
 
@@ -9862,7 +9589,9 @@ export const updateRestaurantSalePayments = async (req, res) => {
         }
       } else if (oldIsImmediate && newIsCredit) {
         if (!receipt) {
-          throw new Error(`Active Receipt not found for paymentId ${paymentIdKey}`);
+          throw new Error(
+            `Active Receipt not found for paymentId ${paymentIdKey}`,
+          );
         }
         if (!settlement) {
           throw new Error(

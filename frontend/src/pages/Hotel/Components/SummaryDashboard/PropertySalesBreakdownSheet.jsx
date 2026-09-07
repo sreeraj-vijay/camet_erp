@@ -57,13 +57,13 @@ const PropertySalesBreakdownSheet = ({
             <p className="text-[10px] uppercase tracking-widest text-slate-500 font-semibold">
               Total Property Sales
             </p>
-            <p className="text-md sm:text-md font-bold text-gray-800 leading-tight break-all">
+            <p className="w-full text-right text-md sm:text-md font-bold tabular-nums text-gray-800 leading-tight break-all">
               {totalPropertySales}
             </p>
-            <p className="text-md sm:text-md font-bold text-gray-800 leading-tight break-all">
+            <p className="w-full text-right text-md sm:text-md font-bold tabular-nums text-gray-800 leading-tight break-all">
               {tax}
             </p>
-            <p className="text-md sm:text-md font-bold text-gray-800 leading-tight break-all">
+            <p className="w-full text-right text-md sm:text-md font-bold tabular-nums text-gray-800 leading-tight break-all">
               {finalAmount}
             </p>
           </div>
@@ -102,7 +102,7 @@ const PropertySalesBreakdownSheet = ({
                 Hotel
               </p>
             </div>
-            <p className="text-xs sm:text-sm font-semibold text-gray-800 mt-1 break-all">
+            <p className="text-right text-xs sm:text-sm font-semibold tabular-nums text-gray-800 mt-1 break-all">
               {totalHotelSales}
             </p>
           </div>
@@ -133,7 +133,7 @@ const PropertySalesBreakdownSheet = ({
                 Restaurant
               </p>
             </div>
-            <p className="text-xs sm:text-sm font-semibold text-gray-800 mt-1 break-all">
+            <p className="text-right text-xs sm:text-sm font-semibold tabular-nums text-gray-800 mt-1 break-all">
               {totalRestaurantSales}
             </p>
           </div>
@@ -156,7 +156,7 @@ const PropertySalesBreakdownSheet = ({
                     <p className="text-sm font-medium text-gray-700 break-words leading-snug">
                       {company.companyName}
                     </p>
-                    <p className="text-[11px] text-slate-500 mt-1">
+                    <p className="text-right text-[11px] tabular-nums text-slate-500 mt-1">
                       Total {fmt(company.totalSales)}
                     </p>
                   </div>
@@ -190,14 +190,14 @@ const PropertySalesBreakdownSheet = ({
                       Hotel
                     </p>
                   </div>
-                  <p className="text-xs sm:text-sm font-semibold text-gray-800 mt-1 break-all">
+                  <p className="text-right text-xs sm:text-sm font-semibold tabular-nums text-gray-800 mt-1 break-all">
                     {fmt(company.hotelSales)}
                   </p>
 
-                  <p className="text-xs sm:text-sm font-semibold text-gray-800 mt-1 break-all">
+                  <p className="text-right text-xs sm:text-sm font-semibold tabular-nums text-gray-800 mt-1 break-all">
                     {fmt(company.hotelTax)}
                   </p>
-                  <p className="text-xs sm:text-sm font-semibold text-gray-800 mt-1 break-all">
+                  <p className="text-right text-xs sm:text-sm font-semibold tabular-nums text-gray-800 mt-1 break-all">
                     {fmt(company.hotelSales - company.hotelTax)}
                   </p>
                 </div>
@@ -228,13 +228,13 @@ const PropertySalesBreakdownSheet = ({
                       Restaurant
                     </p>
                   </div>
-                  <p className="text-xs sm:text-sm font-semibold text-gray-800 mt-1 break-all">
+                  <p className="text-right text-xs sm:text-sm font-semibold tabular-nums text-gray-800 mt-1 break-all">
                     {fmt(company.restaurantSales)}
                   </p>
-                  <p className="text-xs sm:text-sm font-semibold text-gray-800 mt-1 break-all">
+                  <p className="text-right text-xs sm:text-sm font-semibold tabular-nums text-gray-800 mt-1 break-all">
                     {fmt(company.restaurantTax)}
                   </p>
-                  <p className="text-xs sm:text-sm font-semibold text-gray-800 mt-1 break-all">
+                  <p className="text-right text-xs sm:text-sm font-semibold tabular-nums text-gray-800 mt-1 break-all">
                     {fmt(company.restaurantSales - company.restaurantTax)}
                   </p>
                 </div>

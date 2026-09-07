@@ -171,7 +171,7 @@ function BookingList() {
   const [selectedSaleDate, setSelectedSaleDate] = useState(
     new Date().toISOString().split("T")[0],
   );
-
+  const checkoutRequestIdRef = useRef(null);
   console.log(selectedEditBooking?.checkInId?.voucherNumber);
 
   const [
@@ -206,7 +206,6 @@ function BookingList() {
   const permission = useSelector((state) => state.permissionData?.permissions);
 
   console.log(permission?.editPaymentTypes);
-
 
   const secondaryUserRole =
     JSON.parse(localStorage.getItem("sUserData"))?.role || "user";
@@ -325,29 +324,49 @@ function BookingList() {
         if (room?.isSwapped && room?.swappingDateFrom) {
           let swappingDate = normalizeToDate(room.swappingDateFrom);
           let arrivalDate = normalizeToDate(checkout?.arrivalDate);
+          const currentSelectedRoomId = String(room?._id || "");
+          const currentRoomId = String(room?.roomId?._id || room?.roomId || "");
 
-        let swappedRoomObject = checkout?.roomSwapHistory.find(
-          (r) => r.fromRoomId == room.roomId,
-        );
-        console.log(swappedRoomObject);
-        if (swappedRoomObject?.toRoomId) {
-          let swappedRoomData = checkout?.selectedRooms.find(
-            (r) => r.roomId == swappedRoomObject.toRoomId,
+          let swappedRoomObject = checkout?.roomSwapHistory.find(
+            (swap) =>
+              swap?.fromSelectedRoomId
+                ? String(swap.fromSelectedRoomId) === currentSelectedRoomId
+                : String(swap?.fromRoomId?._id || swap?.fromRoomId || "") ===
+                  currentRoomId,
           );
-          let isRoomSwappedData = checkout?.roomSwapHistory.find(
-            (r) => r.toRoomId == room.roomId,
-          )
-      
-          if (swappedRoomData?.isSwapped === false  && isRoomSwappedData) {
-            arrivalDate = normalizeToDate(swappedRoomData.swappingDateFrom);
-            arrivalDate.setDate(arrivalDate.getDate() - 1);
-          }else{
-            console.log(room)
-            arrivalDate = normalizeToDate(checkout.arrivalDate);
-            swappingDate =  normalizeToDate(room.swappingDateFrom);
-          }
+          console.log(swappedRoomObject);
+          if (swappedRoomObject?.toRoomId) {
+            let swappedRoomData = checkout?.selectedRooms.find(
+              (selectedRoom) =>
+                swappedRoomObject?.toSelectedRoomId
+                  ? String(selectedRoom?._id || "") ===
+                    String(swappedRoomObject.toSelectedRoomId)
+                  : String(
+                      selectedRoom?.roomId?._id || selectedRoom?.roomId || "",
+                    ) ===
+                    String(
+                      swappedRoomObject?.toRoomId?._id ||
+                        swappedRoomObject?.toRoomId ||
+                        "",
+                    ),
+            );
+            let isRoomSwappedData = checkout?.roomSwapHistory.find(
+              (swap) =>
+                swap?.toSelectedRoomId
+                  ? String(swap.toSelectedRoomId) === currentSelectedRoomId
+                  : String(swap?.toRoomId?._id || swap?.toRoomId || "") ===
+                    currentRoomId,
+            );
 
-        }
+            if (swappedRoomData?.isSwapped === false && isRoomSwappedData) {
+              arrivalDate = normalizeToDate(swappedRoomData.swappingDateFrom);
+              arrivalDate.setDate(arrivalDate.getDate() - 1);
+            } else {
+              console.log(room);
+              arrivalDate = normalizeToDate(checkout.arrivalDate);
+              swappingDate = normalizeToDate(room.swappingDateFrom);
+            }
+          }
           stayDays = Math.floor(
             (swappingDate - arrivalDate) / (1000 * 60 * 60 * 24),
           );
@@ -1441,12 +1460,14 @@ function BookingList() {
     }
   };
   const handleSavePayment = async () => {
-    console.log("hddd");
-    console.log(selectedCheckOut);
-    console.log(selectedCheckOut.length);
-    console.log(paymentMode);
+    if (saveLoader) return;
 
     setSaveLoader(true);
+
+    if (!checkoutRequestIdRef.current) {
+      checkoutRequestIdRef.current = crypto.randomUUID();
+    }
+
     let paymentDetails;
 
     if (paymentMode === "split") {
@@ -1734,7 +1755,7 @@ function BookingList() {
       console.log("Hhhh");
       console.log(additionalChargeDataBasedOnSelection);
 
-      restaurantSideDiscountAdjustmentArray.length > 0 &&
+      restaurantSideDiscountAdjustmentArray?.length > 0 &&
         (paymentDetails.restaurantSideDiscountAdjustmentArray =
           restaurantSideDiscountAdjustmentArray);
 
@@ -1747,6 +1768,8 @@ function BookingList() {
       dispatch(setOnlineType(selectedOnlinetype));
       dispatch(setRestaurantTag(additionalChargeDataBasedOnSelection));
       setIsPartial(false);
+      setSaveLoader(false);
+      checkoutRequestIdRef.current = null;
       proceedToCheckout(dateandstaysdata, processedCheckoutData);
     } else {
       console.log(restaurantSideDiscountAdjustmentArray);
@@ -1754,6 +1777,7 @@ function BookingList() {
         const response = await api.post(
           `/api/sUsers/convertCheckOutToSale/${cmp_id}`,
           {
+            checkoutRequestId: checkoutRequestIdRef.current,
             selectedSaleDate: selectedSaleDate,
             paymentMethod: paymentMethod,
             paymentDetails: paymentDetails,
@@ -1802,6 +1826,7 @@ function BookingList() {
         setShowPaymentModal(false);
         fetchBookings(1, searchTerm);
         setShowPrintConfirmModal(true);
+        checkoutRequestIdRef.current = null;
       }
     }
   };
@@ -1906,12 +1931,73 @@ function BookingList() {
     console.log("HH");
   };
   console.log(bookings);
-  const proceedToCheckout = (roomAssignments, data) => {
-    console.log(roomAssignments);
-    console.log(data);
+  const getCheckoutRoomSegmentIds = (originalCheckIn, roomAssignments) => {
+    const getId = (value) => String(value?._id || value || "");
+    const selectedRoomIds = new Set();
+    const selectedRooms = originalCheckIn?.selectedRooms || [];
 
-    console.log("hhhhhh");
-    setSaveLoader(true);
+    roomAssignments.forEach((assignment) => {
+      const selectedRoomId = getId(assignment?.roomId);
+      const isSelectedRoomId = selectedRooms.some(
+        (room) => getId(room?._id) === selectedRoomId,
+      );
+
+      if (isSelectedRoomId) {
+        selectedRoomIds.add(selectedRoomId);
+        return;
+      }
+
+      // Older checkout assignments identify rooms only by their master room ID.
+      const roomMasterId = getId(assignment?.selectedRoom || assignment?.roomId);
+      selectedRooms
+        .filter((room) => getId(room?.roomId) === roomMasterId)
+        .forEach((room) => selectedRoomIds.add(getId(room?._id)));
+    });
+
+    // Add every earlier segment required by the selected swap chain.
+    let addedRoom = true;
+    while (addedRoom) {
+      addedRoom = false;
+      (originalCheckIn?.roomSwapHistory || []).forEach((swap) => {
+        const isNewSwap = Boolean(swap?.toSelectedRoomId);
+        const toSelectedRoomId = getId(swap?.toSelectedRoomId);
+        const toRoomId = getId(swap?.toRoomId);
+        const includesDestination = isNewSwap
+          ? selectedRoomIds.has(toSelectedRoomId)
+          : selectedRooms.some(
+              (room) =>
+                selectedRoomIds.has(getId(room?._id)) &&
+                getId(room?.roomId) === toRoomId,
+            );
+
+        if (!includesDestination) return;
+
+        if (swap?.fromSelectedRoomId) {
+          const fromSelectedRoomId = getId(swap.fromSelectedRoomId);
+          if (!selectedRoomIds.has(fromSelectedRoomId)) {
+            selectedRoomIds.add(fromSelectedRoomId);
+            addedRoom = true;
+          }
+          return;
+        }
+
+        // Legacy swap history has no segment IDs, so retain the master-room fallback.
+        selectedRooms
+          .filter((room) => getId(room?.roomId) === getId(swap?.fromRoomId))
+          .forEach((room) => {
+            const fromSelectedRoomId = getId(room?._id);
+            if (!selectedRoomIds.has(fromSelectedRoomId)) {
+              selectedRoomIds.add(fromSelectedRoomId);
+              addedRoom = true;
+            }
+          });
+      });
+    }
+
+    return selectedRoomIds;
+  };
+
+  const proceedToCheckout = (roomAssignments, data) => {
     const hasPrint1 = configurations[0]?.defaultPrint?.print1;
     let checkoutData;
     let checkinids = null;
@@ -1922,8 +2008,13 @@ function BookingList() {
         return group.checkIns.map((checkIn) => {
           const originalCheckIn = checkIn.originalCheckIn;
           const id = checkIn?.checkInId;
+          const selectedRoomIds = getCheckoutRoomSegmentIds(
+            originalCheckIn,
+            checkIn.rooms,
+          );
+
           const roomsToCheckout = originalCheckIn.selectedRooms.filter((room) =>
-            checkIn.rooms.some((r) => r.roomId === room._id),
+            selectedRoomIds.has(String(room._id)),
           );
           const originalCustomerId = originalCheckIn.customerId?._id;
           const isPartialCheckout =
@@ -1941,7 +2032,7 @@ function BookingList() {
             originalCheckInId: checkIn.checkInId,
             originalCustomerId: originalCustomerId,
             remainingRooms: originalCheckIn.selectedRooms.filter(
-              (room) => !checkIn.rooms.some((r) => r.roomId === room._id),
+              (room) => !selectedRoomIds.has(String(room._id)),
             ),
           };
         });
@@ -1954,10 +2045,14 @@ function BookingList() {
         return group.checkIns.map((checkIn) => {
           const originalCheckIn = checkIn.originalCheckIn;
 
-          const roomsToCheckout = originalCheckIn.selectedRooms.filter((room) =>
-            checkIn.rooms.some((r) => r.roomId === room._id),
+          const selectedRoomIds = getCheckoutRoomSegmentIds(
+            originalCheckIn,
+            checkIn.rooms,
           );
 
+          const roomsToCheckout = originalCheckIn.selectedRooms.filter((room) =>
+            selectedRoomIds.has(String(room._id)),
+          );
           const originalCustomerId = originalCheckIn.customerId?._id;
 
           const isPartialCheckout =
@@ -1976,7 +2071,7 @@ function BookingList() {
             originalCheckInId: checkIn.checkInId,
             originalCustomerId,
             remainingRooms: originalCheckIn.selectedRooms.filter(
-              (room) => !checkIn.rooms.some((r) => r.roomId === room._id),
+              (room) => !selectedRoomIds.has(String(room._id)),
             ),
           };
         });
@@ -2280,12 +2375,28 @@ function BookingList() {
     // console.log(el.voucherNumber);
 
     const findSwappedRooms = (room) => {
+      const currentSelectedRoomId = String(room?._id || "");
+      const currentRoomId = String(room?.roomId?._id || room?.roomId || "");
       let specifcSwap = el.roomSwapHistory.find(
-        (swap) => swap.fromRoomId === room.roomId,
+        (swap) =>
+          swap?.fromSelectedRoomId
+            ? String(swap.fromSelectedRoomId) === currentSelectedRoomId
+            : String(swap?.fromRoomId?._id || swap?.fromRoomId || "") ===
+              currentRoomId,
       );
       let toRoom =
         specifcSwap &&
-        el.selectedRooms.find((room) => room.roomId === specifcSwap.toRoomId);
+        el.selectedRooms.find((selectedRoom) =>
+          specifcSwap?.toSelectedRoomId
+            ? String(selectedRoom?._id || "") ===
+              String(specifcSwap.toSelectedRoomId)
+            : String(
+                selectedRoom?.roomId?._id || selectedRoom?.roomId || "",
+              ) ===
+              String(
+                specifcSwap?.toRoomId?._id || specifcSwap?.toRoomId || "",
+              ),
+        );
       return toRoom ? toRoom.roomName : "";
     };
     const isCheckOutSelected = (order) => {
@@ -2724,18 +2835,19 @@ function BookingList() {
                   Print
                 </button>
               )}
-              {location.pathname === "/sUsers/checkOutList" &&  (isAdminUser(secUserData) || permission?.editPaymentTypes) && (
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setIsEditModalOpen(true);
-                    setSelectedEditBooking(el);
-                  }}
-                  className="bg-blue-600 hover:bg-blue-500 text-white font-semibold py-1 px-3 rounded text-xs transition duration-300"
-                >
-                  Edit
-                </button>
-              )}
+              {location.pathname === "/sUsers/checkOutList" &&
+                (isAdminUser(secUserData) || permission?.editPaymentTypes) && (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setIsEditModalOpen(true);
+                      setSelectedEditBooking(el);
+                    }}
+                    className="bg-blue-600 hover:bg-blue-500 text-white font-semibold py-1 px-3 rounded text-xs transition duration-300"
+                  >
+                    Edit
+                  </button>
+                )}
               {(el?.status != "checkIn" &&
                 location.pathname == "/sUsers/bookingList") ||
               (el?.status != "checkOut" &&
@@ -3269,6 +3381,7 @@ function BookingList() {
                   />
                   <button
                     onClick={() => {
+                      if (saveLoader) return;
                       setShowPaymentModal(false);
                       setPaymentMode("single");
                       setCashAmount(0);
@@ -3287,6 +3400,7 @@ function BookingList() {
                       ]);
                       window.location.reload();
                     }}
+                    disabled={saveLoader}
                     className="w-7 h-7 rounded-lg border border-gray-200 dark:border-neutral-700 flex items-center justify-center text-gray-400 hover:text-gray-600 hover:bg-gray-50 dark:hover:bg-neutral-800 transition-colors"
                   >
                     <X className="w-3.5 h-3.5" />
@@ -4407,9 +4521,8 @@ function BookingList() {
                   </div>
 
                   <button
-                    onClick={() => {
-                      handleSavePayment();
-                    }}
+                    onClick={handleSavePayment}
+                    disabled={saveLoader}
                     className={`mt-3 w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-[13px] font-semibold transition-all ${
                       saveLoader
                         ? "bg-gray-100 dark:bg-neutral-700 text-gray-400 cursor-not-allowed"

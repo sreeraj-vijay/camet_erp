@@ -1,5 +1,6 @@
 import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
+import { calculateStayDays, getRoomStayStartDate } from "../Helper/hotelHelper";
 
 // Helper function to format date
 const formatDate = (date) => {
@@ -30,7 +31,14 @@ const transformSingleCheckOut = (checkoutItem) => {
   const result = [];
   
   checkoutItem.selectedRooms.forEach((room) => {
-    const stayDays = room.stayDays || 1;
+    const stayDays = calculateStayDays(
+      checkoutItem,
+      room,
+      checkoutItem.arrivalDate,
+      checkoutItem.checkOutDate,
+      checkoutItem.stayDays,
+    );
+    if (stayDays <= 0) return;
     const fullDays = Math.floor(stayDays);
     const fractionalDay = stayDays - fullDays;
     
@@ -42,7 +50,9 @@ const transformSingleCheckOut = (checkoutItem) => {
     const additionalPaxDataWithTax = (room.additionalPaxAmountWithTax || 0) / stayDays;
     const additionalPaxDataWithOutTax = (room.additionalPaxAmountWithOutTax || 0) / stayDays;
     
-    const startDate = new Date(checkoutItem.arrivalDate);
+    const startDate = new Date(
+      getRoomStayStartDate(checkoutItem, room, checkoutItem.arrivalDate),
+    );
     
     // Full days
     for (let i = 0; i < fullDays; i++) {

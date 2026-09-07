@@ -82,7 +82,7 @@ const orgId = useSelector(
         if (searchTerm) {
           params.append("search", searchTerm);
         }
-        params.append('under' ,  'restaurant')
+        // params.append('under' ,  'restaurant')
         const res = await api.get(`/api/sUsers/getItems/${cmp_id}?${params}`, {
           withCredentials: true,
         });

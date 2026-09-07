@@ -55,7 +55,7 @@ export const taxCalculator = (
     console.log("baseAmount",includePaxRateWithRoom);
     const isOffline = formData?.bookingType === "offline";
 
-    console.log(baseAmount)
+    console.log(data)
     // totalAmount for tax slab detection
     // includeFoodRateWithRoom = true  → food already inside baseAmount, don't add again
     // includeFoodRateWithRoom = false → food is separate, add for correct slab detection
@@ -63,6 +63,7 @@ export const taxCalculator = (
     if (!includeFoodRateWithRoom && !isOffline) {
       totalAmount += reducedFoodPlanAmount;
     }
+  
     let rate = includePaxRateWithRoom ? (data.priceLevelRate - (reducedAdditionalPaxAmount/data.stayDays)) : data.priceLevelRate;
      rate = includeFoodRateWithRoom ? (rate - reducedFoodPlanAmount/data.stayDays) : rate;
      console.log("rate", rate);
@@ -92,6 +93,7 @@ export const taxCalculator = (
 
     // Room + pax tax
     const taxAmount = Math.round((totalAmount * taxRate) / 100);
+    console.log("taxAmount", totalAmount);
     let amountWithTax = Math.round(
       inclusive ? totalAmount : totalAmount + taxAmount
     );

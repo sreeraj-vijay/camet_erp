@@ -97,6 +97,7 @@ const RoomSwapModal = ({
         {
           newRoomId: selectedRoom?._id,
           oldRoomId,
+          oldSelectedRoomId: selectedGuest.selectedRoomId,
           selectedDate,
           formData,
         },
@@ -155,6 +156,7 @@ const RoomSwapModal = ({
             roomName: room?.roomId?.roomName || room?.roomName,
             roomPrice: room?.roomId?.priceLevelRate || 0,
           },
+          selectedRoomId: room?._id,
           foodPlanArray : guest?.foodPlan.filter((item) => item.roomId === room?.roomId?._id || item.roomId === room?.roomId),
           additionalPaxDetails: guest?.additionalPaxDetails.filter((item) => item.roomId === room?.roomId?._id || item.roomId === room?.roomId),
         })),

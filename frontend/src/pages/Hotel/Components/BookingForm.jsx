@@ -88,7 +88,7 @@ function BookingForm({
   });
   let addFoodPlanWithRate = configurations?.[0]?.foodPlaWithRoomRate;
   let addPaxWithRate = configurations?.[0]?.additionalPaxWithRoomRate;
-  console.log(addFoodPlanWithRate);
+  console.log(editData);
   let discountBasedOnGrossAmount =
     configurations?.[0]?.discountBasedOnGrossAmountInHotel;
   const tariffMinAllowedDate =
@@ -222,7 +222,7 @@ function BookingForm({
 
   useEffect(() => {
     if (editData) {
-      console.log("editData", editData);
+      console.log("editData", editData.selectedRooms[0]?._id);
       setSelectedParty(editData?.customerId);
       setSelectedGuest(editData?.guestId);
       setHotelAgent(editData?.agentId);
@@ -1118,6 +1118,43 @@ function BookingForm({
     setFormData((prev) => ({ ...prev, agentId: agent ? agent._id : "" }));
   };
 
+  const preserveSelectedRoomIds = (previousRooms = [], nextRooms = []) => {
+    const usedSelectedRoomIds = new Set(
+      nextRooms
+        .map((room) => room?._id && String(room._id))
+        .filter(Boolean),
+    );
+
+    return nextRooms.map((nextRoom) => {
+      if (nextRoom?._id) return nextRoom;
+
+      const matchingRooms = previousRooms.filter((previousRoom) => {
+        const sameRoom =
+          String(previousRoom?.roomId?._id || previousRoom?.roomId || "") ===
+          String(nextRoom?.roomId?._id || nextRoom?.roomId || "");
+        const sameSwapState =
+          Boolean(previousRoom?.isSwapped) === Boolean(nextRoom?.isSwapped);
+        const sameSwapDate =
+          String(previousRoom?.swappingDateFrom || "") ===
+          String(nextRoom?.swappingDateFrom || "");
+
+        return (
+          previousRoom?._id &&
+          !usedSelectedRoomIds.has(String(previousRoom._id)) &&
+          sameRoom &&
+          sameSwapState &&
+          sameSwapDate
+        );
+      });
+
+      if (matchingRooms.length !== 1) return nextRoom;
+
+      const selectedRoomId = String(matchingRooms[0]._id);
+      usedSelectedRoomIds.add(selectedRoomId);
+      return { ...nextRoom, _id: matchingRooms[0]._id };
+    });
+  };
+
   const handleAvailableRooms = (rooms, total) => {
     if (rooms.length > 0) {
       // ✅ CRITICAL: If in tariff rate change mode, merge with existing rooms
@@ -1165,7 +1202,7 @@ function BookingForm({
 
       setFormData((prev) => ({
         ...prev,
-        selectedRooms: rooms,
+        selectedRooms: preserveSelectedRoomIds(prev.selectedRooms, rooms),
         roomTotal: total,
         updatedDate: currentDateDefault,
       }));

@@ -18,7 +18,7 @@ import { Calendar } from "@/components/ui/calendar";
 import { format } from "date-fns";
 
 const fmt = (n) =>
-  "₹" +
+  "₹" + " " +
   Number(n ?? 0).toLocaleString("en-IN", {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,

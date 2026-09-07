@@ -147,6 +147,7 @@ function AvailableRooms({
           formData.selectedRooms.map(async (booking) => {
             console.log(booking);
             const normalizedBooking = {
+              _id: booking._id,
               roomId: booking.roomId || booking._id,
               roomName: booking.roomName,
               priceLevel: booking.priceLevel || [],
@@ -366,102 +367,155 @@ function AvailableRooms({
       ),
     );
   }, [selectedGuest, roomIdToUpdate]);
+  
+const recalculateBookingTotals = useCallback(
+  (booking) => {
+    const checkInDate = formData?.arrivalDate || formData?.checkInDate;
+    const checkOutDate = formData?.checkOutDate;
 
-  const recalculateBookingTotals = useCallback(
-    (booking) => {
-      const checkInDate = formData?.arrivalDate || formData?.checkInDate;
-      const checkOutDate = formData?.checkOutDate;
-
-      if (!checkInDate || !checkOutDate) {
-        // Fallback to simple calculation if dates are not available
-        const baseAmount =
-          Number(booking.priceLevelRate || 0) * Number(booking.stayDays || 0);
-        return {
-          ...booking,
-          totalAmount: baseAmount,
-        };
-      }
-
-      const normalizeToDate = (d) => {
-        const nd = new Date(d);
-        nd.setUTCHours(0, 0, 0, 0);
-        return nd;
-      };
-
-      const stayDates = [];
-      let currentDate = new Date(checkInDate);
-      let endDate = new Date(checkOutDate);
-      if (booking?.isSwapped && booking?.swappingDateFrom) {
-        let swappingDate = normalizeToDate(booking.swappingDateFrom);
-        let arrivalDate = normalizeToDate(checkInDate?.arrivalDate);
-
-        let swappedRoomObject = formData?.roomSwapHistory.find(
-          (r) => r.fromRoomId == booking.roomId,
-        );
-        console.log(swappedRoomObject);
-        if (swappedRoomObject?.toRoomId) {
-          let swappedRoomData = formData?.selectedRooms.find(
-            (r) => r.roomId == swappedRoomObject.toRoomId,
-          );
-          let isRoomSwappedData = formData?.roomSwapHistory.find(
-            (r) => r.toRoomId == booking.roomId,
-          );
-
-          if (swappedRoomData?.isSwapped === false && isRoomSwappedData) {
-            arrivalDate = normalizeToDate(swappedRoomData.swappingDateFrom);
-            arrivalDate.setDate(arrivalDate.getDate() - 1);
-          } else {
-            console.log(bookings);
-            arrivalDate = normalizeToDate(formData.arrivalDate);
-            swappingDate = normalizeToDate(booking.swappingDateFrom);
-          }
-        }
-        currentDate = arrivalDate 
-        endDate = swappingDate;
-      } else if (!booking?.isSwapped && booking?.swappingDateFrom) {
-        currentDate = normalizeToDate(booking.swappingDateFrom);
-        currentDate = normalizeToDate(booking.checkOutDate);
-      }
-      console.log()
-
-      while (currentDate < endDate) {
-        const formattedDate = currentDate.toISOString().split("T")[0];
-        stayDates.push(formattedDate);
-        currentDate.setDate(currentDate.getDate() + 1);
-      }
-
-      let totalAmount = 0;
-      const dateTariffs = booking.dateTariffs || {};
-      const defaultRate = Number(booking.priceLevelRate || 0);
-      const tariffDates = Object.keys(dateTariffs).sort();
-
-      stayDates.forEach((date) => {
-        if (dateTariffs[date]) {
-          totalAmount += Number(dateTariffs[date]);
-        } else {
-          let applicableRate = defaultRate;
-
-          for (let i = tariffDates.length - 1; i >= 0; i--) {
-            if (tariffDates[i] <= date) {
-              applicableRate = Number(dateTariffs[tariffDates[i]]);
-              break;
-            }
-          }
-
-          totalAmount += applicableRate;
-        }
-      });
-      console.log(totalAmount);
-      console.log(booking.stayDays);
+    if (!checkInDate || !checkOutDate) {
+      const baseAmount =
+        Number(booking.priceLevelRate || 0) *
+        Number(booking.stayDays || 0);
 
       return {
         ...booking,
-        totalAmount:
-          booking.stayDays === 0 || booking.stayDays === "0" ? 0 : totalAmount,
+        totalAmount: baseAmount,
       };
-    },
-    [formData],
-  );
+    }
+
+    const normalizeToDate = (d) => {
+      const nd = new Date(d);
+      nd.setUTCHours(0, 0, 0, 0);
+      return nd;
+    };
+
+    const stayDates = [];
+
+    let currentDate = normalizeToDate(checkInDate);
+    let endDate = normalizeToDate(checkOutDate);
+
+    // Room from which guest was swapped
+    if (booking?.isSwapped && booking?.swappingDateFrom) {
+      let swappingDate = normalizeToDate(booking.swappingDateFrom);
+      let arrivalDate = normalizeToDate(checkInDate);
+      const currentSelectedRoomId = String(booking?._id || "");
+      const currentRoomId = String(
+        booking?.roomId?._id || booking?.roomId || "",
+      );
+
+      const swappedRoomObject = formData?.roomSwapHistory?.find(
+        (swap) =>
+          swap?.fromSelectedRoomId
+            ? String(swap.fromSelectedRoomId) === currentSelectedRoomId
+            : String(swap?.fromRoomId?._id || swap?.fromRoomId || "") ===
+              currentRoomId,
+      );
+
+      if (swappedRoomObject?.toRoomId) {
+        const swappedRoomData = formData?.selectedRooms?.find(
+          (selectedRoom) =>
+            swappedRoomObject?.toSelectedRoomId
+              ? String(selectedRoom?._id || "") ===
+                String(swappedRoomObject.toSelectedRoomId)
+              : String(selectedRoom?.roomId?._id || selectedRoom?.roomId || "") ===
+                String(
+                  swappedRoomObject?.toRoomId?._id ||
+                    swappedRoomObject?.toRoomId ||
+                    "",
+                ),
+        );
+
+        const isRoomSwappedData = formData?.roomSwapHistory?.find(
+          (swap) =>
+            swap?.toSelectedRoomId
+              ? String(swap.toSelectedRoomId) === currentSelectedRoomId
+              : String(swap?.toRoomId?._id || swap?.toRoomId || "") ===
+                currentRoomId,
+        );
+
+        if (
+          swappedRoomData?.isSwapped === false &&
+          isRoomSwappedData
+        ) {
+          arrivalDate = normalizeToDate(
+            swappedRoomData.swappingDateFrom,
+          );
+
+          arrivalDate.setUTCDate(
+            arrivalDate.getUTCDate() - 1,
+          );
+        }
+      }
+
+      currentDate = arrivalDate;
+      endDate = swappingDate;
+    }
+
+    // Room into which guest was swapped
+    else if (
+      !booking?.isSwapped &&
+      booking?.swappingDateFrom
+    ) {
+      currentDate = normalizeToDate(
+        booking.swappingDateFrom,
+      );
+
+      endDate = normalizeToDate(checkOutDate);
+    }
+
+    while (currentDate < endDate) {
+      const formattedDate =
+        currentDate.toISOString().split("T")[0];
+
+      stayDates.push(formattedDate);
+
+      currentDate.setUTCDate(
+        currentDate.getUTCDate() + 1,
+      );
+    }
+
+    let totalAmount = 0;
+
+    const dateTariffs = booking.dateTariffs || {};
+    const defaultRate = Number(
+      booking.priceLevelRate || 0,
+    );
+
+    const tariffDates = Object.keys(dateTariffs).sort();
+
+    stayDates.forEach((date) => {
+      if (dateTariffs[date] != null) {
+        totalAmount += Number(dateTariffs[date]);
+        return;
+      }
+
+      let applicableRate = defaultRate;
+
+      for (let i = tariffDates.length - 1; i >= 0; i--) {
+        if (tariffDates[i] <= date) {
+          applicableRate = Number(
+            dateTariffs[tariffDates[i]],
+          );
+          break;
+        }
+      }
+
+      totalAmount += applicableRate;
+    });
+
+    return {
+      ...booking,
+
+      totalAmount:
+        booking.stayDays === 0 ||
+        booking.stayDays === "0"
+          ? 0
+          : totalAmount,
+    };
+  },
+  [formData],
+);
 
   console.log(bookings);
   const calculateTax = useCallback(
@@ -478,6 +532,8 @@ function AvailableRooms({
           includeFoodRateWithRoom,
           includePaxRateWithRoom,
         );
+
+        console.log(taxResponse);
 
         return {
           ...updatedRoom,
@@ -731,7 +787,6 @@ function AvailableRooms({
         .map((b) => String(b.fromRoomId));
 
       console.log(fromRoomIds);
-
       if (fromRoomIds.length === 0) return;
       console.log(fromRoomIds);
       const updatedBookings = bookings.map((booking) => {

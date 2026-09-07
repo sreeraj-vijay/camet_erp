@@ -973,6 +973,35 @@ export const fetchDashboardCompanyRevenueBreakdown = async (req, res) => {
                   },
                 },
 
+                dailyTax: {
+                  $sum: {
+                    $cond: [
+                      {
+                        $and: [
+                          {
+                            $gte: ["$date", startOfDayIST],
+                          },
+                          {
+                            $lte: ["$date", endOfDayIST],
+                          },
+                        ],
+                      },
+
+                      {
+                        $sum: {
+                          $map: {
+                            input: { $ifNull: ["$items", []] },
+                            as: "item",
+                            in: { $ifNull: ["$$item.totalIgstAmt", 0] },
+                          },
+                        },
+                      },
+
+                      0,
+                    ],
+                  },
+                },
+
                 // ==========================================
                 // MONTHLY REVENUE
                 // ==========================================
@@ -999,12 +1028,53 @@ export const fetchDashboardCompanyRevenueBreakdown = async (req, res) => {
                   },
                 },
 
+                monthlyTax: {
+                  $sum: {
+                    $cond: [
+                      {
+                        $and: [
+                          {
+                            $gte: ["$date", startOfMonthIST],
+                          },
+                          {
+                            $lte: ["$date", endOfDayIST],
+                          },
+                        ],
+                      },
+
+                      {
+                        $sum: {
+                          $map: {
+                            input: { $ifNull: ["$items", []] },
+                            as: "item",
+                            in: { $ifNull: ["$$item.totalIgstAmt", 0] },
+                          },
+                        },
+                      },
+
+                      0,
+                    ],
+                  },
+                },
+
                 // ==========================================
                 // YEARLY REVENUE
                 // ==========================================
                 yearlyRevenue: {
                   $sum: {
                     $ifNull: ["$finalAmount", 0],
+                  },
+                },
+
+                yearlyTax: {
+                  $sum: {
+                    $sum: {
+                      $map: {
+                        input: { $ifNull: ["$items", []] },
+                        as: "item",
+                        in: { $ifNull: ["$$item.totalIgstAmt", 0] },
+                      },
+                    },
                   },
                 },
               },
@@ -1045,6 +1115,20 @@ export const fetchDashboardCompanyRevenueBreakdown = async (req, res) => {
             ],
           },
 
+          dailyTax: {
+            $round: [
+              {
+                $ifNull: [
+                  {
+                    $arrayElemAt: ["$revenueData.dailyTax", 0],
+                  },
+                  0,
+                ],
+              },
+              2,
+            ],
+          },
+
           // ================================================
           // MONTHLY
           // ================================================
@@ -1062,6 +1146,20 @@ export const fetchDashboardCompanyRevenueBreakdown = async (req, res) => {
             ],
           },
 
+          monthlyTax: {
+            $round: [
+              {
+                $ifNull: [
+                  {
+                    $arrayElemAt: ["$revenueData.monthlyTax", 0],
+                  },
+                  0,
+                ],
+              },
+              2,
+            ],
+          },
+
           // ================================================
           // YEARLY
           // ================================================
@@ -1071,6 +1169,20 @@ export const fetchDashboardCompanyRevenueBreakdown = async (req, res) => {
                 $ifNull: [
                   {
                     $arrayElemAt: ["$revenueData.yearlyRevenue", 0],
+                  },
+                  0,
+                ],
+              },
+              2,
+            ],
+          },
+
+          yearlyTax: {
+            $round: [
+              {
+                $ifNull: [
+                  {
+                    $arrayElemAt: ["$revenueData.yearlyTax", 0],
                   },
                   0,
                 ],

@@ -2,6 +2,15 @@
 
 const fmt = (n) => "₹" + Number(n ?? 0).toLocaleString("en-IN");
 
+const AmountWithTax = ({ amount, tax }) => (
+  <span className="inline-flex min-w-fit flex-col rounded-md bg-slate-100 px-2 py-1 text-sm font-semibold text-slate-800">
+    <span>{fmt(amount)}</span>
+    <span className="text-xs font-medium text-slate-500">
+      (Tax: {fmt(tax)})
+    </span>
+  </span>
+);
+
 const RevenueTable = ({ rows = [], selectedDateLabel = "" }) => {
   console.log(rows);
   const sortedRows = [...rows].sort(
@@ -85,23 +94,26 @@ const RevenueTable = ({ rows = [], selectedDateLabel = "" }) => {
                   </td>
                   <td className="px-4 py-3 sm:px-5">
                     <div className="flex items-center gap-3">
-                      <span className="min-w-fit rounded-md bg-slate-100 px-2 py-1 text-sm font-semibold text-slate-800">
-                        {fmt(row?.dailyRevenue)}
-                      </span>
+                      <AmountWithTax
+                        amount={row?.dailyRevenue}
+                        tax={row?.dailyTax}
+                      />
                     </div>
                   </td>
                   <td className="px-4 py-3 sm:px-5">
                     <div className="flex items-center gap-3">
-                      <span className="min-w-fit rounded-md bg-slate-100 px-2 py-1 text-sm font-semibold text-slate-800">
-                        {fmt(row?.monthlyRevenue)}
-                      </span>
+                      <AmountWithTax
+                        amount={row?.monthlyRevenue}
+                        tax={row?.monthlyTax}
+                      />
                     </div>
                   </td>
                   <td className="px-4 py-3 sm:px-5">
                     <div className="flex items-center gap-3">
-                      <span className="min-w-fit rounded-md bg-slate-100 px-2 py-1 text-sm font-semibold text-slate-800">
-                        {fmt(row?.yearlyRevenue)}
-                      </span>
+                      <AmountWithTax
+                        amount={row?.yearlyRevenue}
+                        tax={row?.yearlyTax}
+                      />
                     </div>
                   </td>
                 </tr>
@@ -109,7 +121,7 @@ const RevenueTable = ({ rows = [], selectedDateLabel = "" }) => {
             ) : (
               <tr>
                 <td
-                  colSpan="2"
+                  colSpan="5"
                   className="px-4 py-10 text-center text-sm text-slate-400 sm:px-5"
                 >
                   No revenue data available

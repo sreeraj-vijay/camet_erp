@@ -241,6 +241,11 @@ export const calculateStayDays = (doc, room, arrival, checkOut, days) => {
     nd.setUTCHours(0, 0, 0, 0);
     return nd;
   };
+console.log(room)
+  if(room?.roomName == "E1"){
+    console.log(room)
+    console.log(doc?.roomSwapHistory)
+  }
 
   const swapDate = room?.swappingDateFrom
     ? new Date(room.swappingDateFrom).toISOString().split("T")[0]
@@ -248,20 +253,36 @@ export const calculateStayDays = (doc, room, arrival, checkOut, days) => {
   if (room.isSwapped && room.swappingDateFrom) {
     let swappingDate = normalizeToDate(room.swappingDateFrom);
     let arrivalDate = normalizeToDate(arrival);
-console.log(arrivalDate, checkOut, swappingDate)
+    const currentSelectedRoomId = String(room?._id || "");
+    const currentRoomId = String(room?.roomId?._id || room?.roomId || "");
+
     let swappedRoomObject = doc?.roomSwapHistory?.find(
-      (r) => r.fromRoomId == room.roomId,
+      (r) =>
+        r?.fromSelectedRoomId && currentSelectedRoomId
+          ? String(r.fromSelectedRoomId) === currentSelectedRoomId
+          : String(r?.fromRoomId?._id || r?.fromRoomId || "") === currentRoomId,
     );
 
+    console.log(swappedRoomObject)
+
     if (swappedRoomObject?.toRoomId) {
+  
       let swappedRoomData = doc?.selectedRooms.find(
-        (r) => r.roomId == swappedRoomObject.toRoomId,
+        (r) =>
+          swappedRoomObject?.toSelectedRoomId
+            ? String(r?._id || "") === String(swappedRoomObject.toSelectedRoomId)
+            : String(r?.roomId?._id || r?.roomId || "") ===
+              String(swappedRoomObject?.toRoomId?._id || swappedRoomObject?.toRoomId || ""),
       );
       let isRoomSwappedData = doc?.roomSwapHistory?.find(
-        (r) => r.toRoomId == room.roomId,
+        (r) =>
+          r?.toSelectedRoomId && currentSelectedRoomId
+            ? String(r.toSelectedRoomId) === currentSelectedRoomId
+            : String(r?.toRoomId?._id || r?.toRoomId || "") === currentRoomId,
       );
 
       if (swappedRoomData?.isSwapped === false && isRoomSwappedData) {
+        console.log(room)
         arrivalDate = normalizeToDate(swappedRoomData.swappingDateFrom);
         arrivalDate.setDate(arrivalDate.getDate() - 1);
       } else {
@@ -273,7 +294,7 @@ console.log(arrivalDate, checkOut, swappingDate)
     fullDaysAre = Math.floor(
       (swappingDate - arrivalDate) / (1000 * 60 * 60 * 24),
     );
-    console.log(fullDaysAre);
+
     if (fullDaysAre <= 0) {
       if (swapDate == doc.arrivalDate) {
         fullDaysAre = 0;
@@ -303,8 +324,24 @@ console.log(arrivalDate, checkOut, swappingDate)
       }
     }
   }
-
+console.log(fullDaysAre)
   return fullDaysAre;
+};
+
+export const getRoomStayStartDate = (doc, room, arrival) => {
+  if (!room?.isSwapped && room?.swappingDateFrom) {
+    return room.swappingDateFrom;
+  }
+
+  const currentSelectedRoomId = String(room?._id || "");
+  const currentRoomId = String(room?.roomId?._id || room?.roomId || "");
+  const incomingSwap = doc?.roomSwapHistory?.find((swap) =>
+    swap?.toSelectedRoomId
+      ? String(swap.toSelectedRoomId) === currentSelectedRoomId
+      : String(swap?.toRoomId?._id || swap?.toRoomId || "") === currentRoomId,
+  );
+
+  return incomingSwap?.swapDate || incomingSwap?.selectedDate || arrival;
 };
 
 export const makeItemComplimentary = (item) => ({

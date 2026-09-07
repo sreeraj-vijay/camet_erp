@@ -237,7 +237,34 @@ export default function EnhancedCheckoutModal({
   //'696f204df79a8ca66f1f8da1'
   //697da866055314c367f85ad3
   // Remove a room from checkout (partial checkout)
-  const handleRemoveRoom = (roomId) => {
+  const getId = (value) => String(value?._id || value || "");
+  const handleRemoveRoom = (roomId, selectedRoomId) => {
+    const bookingWithRoom = selectedCheckIns.find((booking) =>
+      booking.selectedRooms?.some((room) => room._id === roomId),
+    );
+
+    const selectedRoom = bookingWithRoom?.selectedRooms?.find(
+      (room) => room._id === roomId,
+    );
+
+    const selectedRoomMasterId = getId(selectedRoomId || selectedRoom?.roomId);
+
+    const relatedSwap = bookingWithRoom?.roomSwapHistory?.find((swap) => {
+      const fromRoomId = getId(swap.fromRoomId);
+      const toRoomId = getId(swap.toRoomId);
+
+      return (
+        fromRoomId === selectedRoomMasterId || toRoomId === selectedRoomMasterId
+      );
+    });
+
+    if (selectedRoom?.isSwapped || relatedSwap) {
+      const shouldRemove = window.confirm(
+        "This room is part of a room swap. Removing it may affect checkout billing. Do you want to continue?",
+      );
+
+      if (!shouldRemove) return;
+    }
     const updatedRoom = selectedCheckIns.map((booking) => {
       // 1) Find the selected room by its _id
       const selectedRoom = booking.selectedRooms.find((r) => r._id === roomId);
@@ -322,7 +349,7 @@ export default function EnhancedCheckoutModal({
     console.log(isSameCustomer);
 
     let result;
-    
+
     if (isSameCustomer) {
       console.log("HHHhh");
       // 🔥 Merge ALL into ONE customer
@@ -430,18 +457,18 @@ export default function EnhancedCheckoutModal({
         originalCustomer: checkIn.customerId,
       })),
   );
-const handleTimeChange = (id, newTime) => {
-  setCheckouts((prev) =>
-    prev.map((checkout) =>
-      checkout._id === id
-        ? {
-            ...checkout,
-            checkOutTime: formatInputTimeTo12Hour(newTime),
-          }
-        : checkout
-    )
-  );
-};
+  const handleTimeChange = (id, newTime) => {
+    setCheckouts((prev) =>
+      prev.map((checkout) =>
+        checkout._id === id
+          ? {
+              ...checkout,
+              checkOutTime: formatInputTimeTo12Hour(newTime),
+            }
+          : checkout,
+      ),
+    );
+  };
   const handleNewDateChange = (id, newDate) => {
     console.log(id, newDate);
     setCheckOutDateTracker(newDate);
@@ -460,7 +487,9 @@ const handleTimeChange = (id, newTime) => {
             (oc) => oc._id === id,
           );
           const time =
-            checkout.checkOutTime || originalCheckout?.checkOutTime || "11:00 AM";
+            checkout.checkOutTime ||
+            originalCheckout?.checkOutTime ||
+            "11:00 AM";
           if (!originalCheckout) return checkout;
 
           const updatedRooms =
@@ -550,7 +579,7 @@ const handleTimeChange = (id, newTime) => {
           return {
             ...checkout,
             checkOutDate: newDate,
-            checkOutTime:time,
+            checkOutTime: time,
 
             stayDays: calculatedDays,
             selectedRooms: updatedRooms,
@@ -920,7 +949,7 @@ const handleTimeChange = (id, newTime) => {
                 onDaysChange={handleStayDaysChange}
                 checkouts={checkouts}
                 onDateChange={handleNewDateChange}
-                 onTimeChange={handleTimeChange}
+                onTimeChange={handleTimeChange}
               />
             </div>
           </div>
